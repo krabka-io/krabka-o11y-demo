@@ -5,32 +5,32 @@ package(default_visibility = ["//visibility:public"])
 # Consumed by `crate.from_cargo` (see //MODULE.bazel).
 exports_files(["Cargo.toml"])
 
+# Named for Cargo's lib target rather than the crate directory, because the
+# `[[bin]]` below has the directory's name and one package cannot spell both.
 crate_library(
-    name = "observability-demo-app",
+    name = "observability_demo_app",
     # `build.rs` turns these into the prost types and the descriptor set that
     # `src/lib.rs` includes from `OUT_DIR`.
     build_script_data = glob(["proto/**"]),
 )
 
-# Cargo's `[[bin]]` name is `observability-demo-app` too, and one Bazel package
-# cannot spell both that and the library. The binary takes the short name.
+# `bazel run //:demo -- --role produce`.
 crate_binary(
-    name = "demo",
+    name = "observability-demo-app",
     crate_root = "src/main.rs",
-    lib = ":observability-demo-app",
+    lib = ":observability_demo_app",
 )
 
 crate_tests(
-    # Every suite but one drives the built binary through its CLI. The
-    # remaining one reads the compose stack and dashboards the demo ships.
+    # Fifteen of the sixteen suites drive the built binary through its CLI.
+    # Naming it in `data` is all that is needed: rules_rust defines
+    # `CARGO_BIN_EXE_<output basename>` for every bin crate there, and defines
+    # it for the compile, which is where `env!` reads it.
+    #
+    # The sixteenth suite reads the compose stack and dashboards the demo ships.
     data = [
-        ":demo",
+        ":observability-demo-app",
         "//:demo_observability",
     ],
-    lib = "observability-demo-app",
-    # `rustc_env`, not `env`: the suites reach the binary through `env!`, which
-    # rustc resolves while it compiles. A runtime-only `env` is not defined yet
-    # at that point. `$(rootpath)` is runfiles-relative, and a Bazel test runs
-    # from the runfiles root, so the baked string still resolves when it runs.
-    rustc_env = {"CARGO_BIN_EXE_observability-demo-app": "$(rootpath :demo)"},
+    lib = "observability_demo_app",
 )
