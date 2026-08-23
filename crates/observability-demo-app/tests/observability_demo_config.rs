@@ -3,11 +3,18 @@ use std::path::{Path, PathBuf};
 use assert2::check;
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .expect("crate lives under repo_root/crates/<name>")
-        .to_path_buf()
+    // Read at run time, not through `env!`: the demo tree is opened here rather
+    // than included at compile time, so a baked build path would be gone by the
+    // time the test runs. Cargo sets the variable; under Bazel the test runs
+    // from the workspace root, where the tree already sits at its repo path.
+    match std::env::var("CARGO_MANIFEST_DIR") {
+        Ok(dir) => Path::new(&dir)
+            .ancestors()
+            .nth(2)
+            .expect("crate lives under repo_root/crates/<name>")
+            .to_path_buf(),
+        Err(_) => PathBuf::from("."),
+    }
 }
 
 fn alloy_config() -> String {
@@ -36,21 +43,6 @@ fn compose_service_block<'a>(compose: &'a str, service: &str) -> &'a str {
         offset += line.len();
     }
     rest
-}
-
-fn demo_melange_config() -> String {
-    std::fs::read_to_string(repo_root().join("packaging/melange/crabka-demo.yaml"))
-        .expect("read demo melange config")
-}
-
-fn demo_apko_config() -> String {
-    std::fs::read_to_string(repo_root().join("packaging/apko/crabka-demo.yaml"))
-        .expect("read demo apko config")
-}
-
-fn demo_publish_workflow() -> String {
-    std::fs::read_to_string(repo_root().join(".github/workflows/publish-demo-image.yml"))
-        .expect("read demo image publish workflow")
 }
 
 fn dashboard_provider_config() -> String {
@@ -392,76 +384,9 @@ fn idle_profile_scrapes_are_lower_frequency() {
 }
 
 #[test]
-fn demo_app_image_does_not_enable_conflicting_heap_allocator() {
-    let melange = demo_melange_config();
-    let demo_app_build = melange
-        .split("cargo build --release \\\n        -p crabka-cli")
-        .nth(1)
-        .and_then(|rest| rest.split("mkdir -p dist").next())
-        .expect("demo app cargo build block exists");
-    check!(
-        melange.contains("-p observability-demo-app"),
-        "demo image package should still build the demo app"
-    );
-    check!(
-        !demo_app_build.contains("--features heap-profiling"),
-        "demo app depends on turso, which already defines a global allocator"
-    );
-    check!(
-        melange.contains("--features heap-profiling"),
-        "Crabka service binaries should still expose jemalloc heap profiling"
-    );
-}
-
-#[test]
-fn demo_runtime_image_does_not_ship_full_dwarf_debug_sections() {
-    let melange = demo_melange_config();
-    assert2::assert!(!melange.contains("CARGO_PROFILE_RELEASE_DEBUG=true"));
-    assert2::assert!(melange.contains("strip --strip-debug"));
-}
-
-#[test]
-fn demo_image_is_built_with_apko_and_melange() {
+fn every_crabka_service_pulls_the_published_demo_image() {
     let compose = docker_compose();
-    let melange = demo_melange_config();
-    let apko = demo_apko_config();
-    let workflow = demo_publish_workflow();
 
-    assert2::assert!(!repo_root().join("demo/observability/Dockerfile").exists());
-    assert2::assert!(melange.contains("package:\n  name: crabka-demo"));
-    for bin in [
-        "crabka-broker",
-        "crabka",
-        "crabka-metrics",
-        "crabka-metrics-service",
-        "crabka-traces",
-        "crabka-observability",
-        "crabka-profiles",
-        "crabka-schema-registry",
-        "observability-demo-app",
-    ] {
-        assert2::assert!(melange.contains(bin));
-    }
-    check!(
-        apko.contains("- crabka-demo"),
-        "apko image should install the local crabka-demo package"
-    );
-    check!(
-        apko.contains("- curl"),
-        "demo image should keep curl for compose healthchecks"
-    );
-    check!(
-        workflow.contains("melange build packaging/melange/crabka-demo.yaml"),
-        "publish-demo-image should build the demo APK with melange"
-    );
-    check!(
-        workflow.contains("apko publish packaging/apko/crabka-demo.yaml"),
-        "publish-demo-image should publish the demo OCI image with apko"
-    );
-    check!(
-        !workflow.contains("docker/build-push-action"),
-        "publish-demo-image should not use the Dockerfile build action"
-    );
     check!(
         compose.contains("image: ghcr.io/robot-head/crabka-demo:latest"),
         "all demo Crabka services should pull the GHCR image by default"

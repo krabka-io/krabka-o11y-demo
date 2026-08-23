@@ -45,12 +45,32 @@ Tests must exercise behavior, not source text. Do not read source files in tests
 
 When you check generated protocol records or other structured values in tests, compare the whole expected struct. This is better than long chains of field-by-field assertions. Use table-driven or parameterized tests for repeated scenarios that differ only by inputs, protocol version, or expected request shape.
 
-## Release Process
+## Build
 
-Crabka uses **release-plz** for automated semantic versioning. Conventional commits drive the version bumps:
+Cargo is the dependency source of truth; Bazel reads the same `Cargo.toml` and
+`Cargo.lock`. Both are gated in CI, so a change has to satisfy both:
 
-- `feat:` gives a minor version bump
-- `fix:` gives a patch version bump
-- `feat!:` gives a major version bump
+```bash
+cargo test --workspace
+```
 
-release-plz also generates the changelogs and publishes the crates to crates.io.
+```bash
+bazel test //...
+```
+
+Per-crate Bazel targets come from the macros in
+[`bazel/defs.bzl`](bazel/defs.bzl), not from hand-written `rust_library` rules.
+That file is shared verbatim across the krabka repositories -- change it here
+only alongside the others.
+
+## Sibling repositories
+
+Nothing here is published to crates.io. The four repositories this one builds on
+are pinned by revision in the root `Cargo.toml`'s `[patch.crates-io]` block,
+which is the single place a sibling revision is bumped. Every crate a sibling
+publishes is listed there, not only the ones named directly: cargo ignores a
+dependency's own patch table, so a transitively-reached crate would otherwise
+come from the registry while its git twin is also in the graph.
+
+Bumping a revision means regenerating `Cargo.lock` and re-running both test
+commands above.

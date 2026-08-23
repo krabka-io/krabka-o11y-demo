@@ -1,0 +1,28 @@
+"""Root package: the observability demo."""
+
+package(default_visibility = ["//visibility:public"])
+
+# Cargo.lock/Cargo.toml are consumed by `crate.from_cargo` (see //MODULE.bazel);
+# clippy.toml by the lint aspect in //tools/lint; .cargo/mutants.toml by the
+# mutation sweep, via `--@rules_rs_mutants//mutants:config` in //.bazelrc.
+exports_files([
+    ".cargo/mutants.toml",
+    "Cargo.lock",
+    "Cargo.toml",
+    "clippy.toml",
+])
+
+# The compose stack, dashboards, alerting rules and agent config the demo runs
+# on. Declared here rather than in //crates/observability-demo-app because the
+# tree sits at the repository root, which is the path its config suite resolves
+# against.
+filegroup(
+    name = "demo_observability",
+    srcs = glob(["demo/observability/**"]),
+)
+
+# `bazel run //:demo -- --role produce`.
+alias(
+    name = "demo",
+    actual = "//crates/observability-demo-app:demo",
+)

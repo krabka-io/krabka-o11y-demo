@@ -184,8 +184,8 @@ services:
     ports: ["9000:9000", "9001:9001"]
     volumes: ["rustfs-data:/data"]
     depends_on:
-      rustfs-permissions: { condition: service_completed_successfully }
-      alloy: { condition: service_started }
+      rustfs-permissions: {condition: service_completed_successfully}
+      alloy: {condition: service_started}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
       interval: 5s
@@ -195,9 +195,9 @@ services:
   rustfs-setup:
     image: mirror.gcr.io/amazon/aws-cli:latest
     <<: *setup-res
-    environment: { <<: *s3-env }
+    environment: {<<: *s3-env}
     depends_on:
-      rustfs: { condition: service_healthy }
+      rustfs: {condition: service_healthy}
     entrypoint: ["/bin/sh", "/bootstrap.sh"]
     volumes: ["./rustfs/bootstrap.sh:/bootstrap.sh:ro"]
 
@@ -210,24 +210,12 @@ services:
     <<: *setup-res
     restart: "no"
     depends_on:
-      broker: { condition: service_healthy }
+      broker: {condition: service_healthy}
     entrypoint:
       - /bin/sh
       - -c
       - >
-        WAL_RETENTION_MS=${CRABKA_OBSERVABILITY_WAL_RETENTION_MS:-900000};
-        WAL_SEGMENT_BYTES=${CRABKA_OBSERVABILITY_WAL_SEGMENT_BYTES:-67108864};
-        for t in __crabka_metrics_wal __crabka_traces_wal __crabka_profiles_wal
-        __crabka_observability_logs_wal orders order-counts; do
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server broker:9092 --create
-        --if-not-exists --topic "$$t" --partitions 1 --replication-factor 1
-        --config retention.ms=$$WAL_RETENTION_MS
-        --config segment.bytes=$$WAL_SEGMENT_BYTES || exit 1;
-        /opt/kafka/bin/kafka-configs.sh --bootstrap-server broker:9092 --alter
-        --entity-type topics --entity-name "$$t"
-        --add-config retention.ms=$$WAL_RETENTION_MS,segment.bytes=$$WAL_SEGMENT_BYTES || exit 1;
-        done; echo "topics ready"
-
+        WAL_RETENTION_MS=${CRABKA_OBSERVABILITY_WAL_RETENTION_MS:-900000}; WAL_SEGMENT_BYTES=${CRABKA_OBSERVABILITY_WAL_SEGMENT_BYTES:-67108864}; for t in __crabka_metrics_wal __crabka_traces_wal __crabka_profiles_wal __crabka_observability_logs_wal orders order-counts; do /opt/kafka/bin/kafka-topics.sh --bootstrap-server broker:9092 --create --if-not-exists --topic "$$t" --partitions 1 --replication-factor 1 --config retention.ms=$$WAL_RETENTION_MS --config segment.bytes=$$WAL_SEGMENT_BYTES || exit 1; /opt/kafka/bin/kafka-configs.sh --bootstrap-server broker:9092 --alter --entity-type topics --entity-name "$$t" --add-config retention.ms=$$WAL_RETENTION_MS,segment.bytes=$$WAL_SEGMENT_BYTES || exit 1; done; echo "topics ready" #magic___^_^___line
   schema-registry:
     <<: [*crabka-image, *registry-res]
     command: ["crabka-schema-registry", "--bootstrap-servers=broker:9092", "--listen-addr=0.0.0.0:8081", "--schemas-topic-rf=1"]
@@ -235,7 +223,7 @@ services:
       <<: *otlp-env
       OTEL_SERVICE_NAME: schema-registry
     depends_on:
-      broker: { condition: service_healthy }
+      broker: {condition: service_healthy}
     ports: ["8081:8081"]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8081/subjects"]
@@ -254,7 +242,7 @@ services:
       <<: *otlp-env
       OTEL_SERVICE_NAME: metrics-distributor
     depends_on:
-      broker: { condition: service_healthy }
+      broker: {condition: service_healthy}
 
   metrics-compactor:
     <<: [*crabka-image, *compactor-res]
@@ -263,8 +251,8 @@ services:
       <<: [*s3-env, *otlp-env]
       OTEL_SERVICE_NAME: metrics-compactor
     depends_on:
-      rustfs-setup: { condition: service_completed_successfully }
-      broker: { condition: service_healthy }
+      rustfs-setup: {condition: service_completed_successfully}
+      broker: {condition: service_healthy}
 
   metrics-querier:
     # crabka-metrics-service uses --wal-bootstrap (its own flag name).
@@ -275,8 +263,8 @@ services:
       OTEL_SERVICE_NAME: metrics-querier
     ports: ["9090:9090"]
     depends_on:
-      rustfs-setup: { condition: service_completed_successfully }
-      broker: { condition: service_healthy }
+      rustfs-setup: {condition: service_completed_successfully}
+      broker: {condition: service_healthy}
 
   # ---- TRACES (Tempo) ----
   traces-distributor:
@@ -286,7 +274,7 @@ services:
       <<: *otlp-env
       OTEL_SERVICE_NAME: traces-distributor
     depends_on:
-      broker: { condition: service_healthy }
+      broker: {condition: service_healthy}
 
   traces-block-builder:
     <<: [*crabka-image, *compactor-res]
@@ -301,8 +289,8 @@ services:
       CRABKA_TRACES_WAL_FETCH_PARTITION_MAX: "${CRABKA_TRACES_WAL_FETCH_PARTITION_MAX:-256KiB}"
       OTEL_SERVICE_NAME: traces-block-builder
     depends_on:
-      rustfs-setup: { condition: service_completed_successfully }
-      broker: { condition: service_healthy }
+      rustfs-setup: {condition: service_completed_successfully}
+      broker: {condition: service_healthy}
 
   traces-metrics-generator:
     <<: [*crabka-image, *compactor-res]
@@ -311,9 +299,9 @@ services:
       <<: *otlp-env
       OTEL_SERVICE_NAME: traces-metrics-generator
     depends_on:
-      broker: { condition: service_healthy }
-      metrics-distributor: { condition: service_started }
-      topic-setup: { condition: service_completed_successfully }
+      broker: {condition: service_healthy}
+      metrics-distributor: {condition: service_started}
+      topic-setup: {condition: service_completed_successfully}
 
   traces-querier:
     <<: [*crabka-image, *querier-res]
@@ -326,7 +314,7 @@ services:
       OTEL_SERVICE_NAME: traces-querier
     ports: ["3200:3200"]
     depends_on:
-      rustfs-setup: { condition: service_completed_successfully }
+      rustfs-setup: {condition: service_completed_successfully}
 
   # ---- LOGS (Loki) — binary is `crabka-observability` (the logs service) ----
   logs-distributor:
@@ -336,8 +324,8 @@ services:
       <<: [*s3-env, *otlp-env]
       OTEL_SERVICE_NAME: logs-distributor
     depends_on:
-      broker: { condition: service_healthy }
-      rustfs-setup: { condition: service_completed_successfully }
+      broker: {condition: service_healthy}
+      rustfs-setup: {condition: service_completed_successfully}
 
   logs-compactor:
     <<: [*crabka-image, *compactor-res]
@@ -346,8 +334,8 @@ services:
       <<: [*s3-env, *otlp-env]
       OTEL_SERVICE_NAME: logs-compactor
     depends_on:
-      broker: { condition: service_healthy }
-      rustfs-setup: { condition: service_completed_successfully }
+      broker: {condition: service_healthy}
+      rustfs-setup: {condition: service_completed_successfully}
 
   logs-querier:
     # --wal-group-id MUST differ from the compactor's default
@@ -370,8 +358,8 @@ services:
     # consumer-group join fails, and the tail never recovers -> empty labels/streams
     # until the container is restarted. Wait for the broker like the compactor does.
     depends_on:
-      rustfs-setup: { condition: service_completed_successfully }
-      broker: { condition: service_healthy }
+      rustfs-setup: {condition: service_completed_successfully}
+      broker: {condition: service_healthy}
 
   # ---- PROFILES (Pyroscope) ----
   profiles-distributor:
@@ -381,7 +369,7 @@ services:
       <<: *otlp-env
       OTEL_SERVICE_NAME: profiles-distributor
     depends_on:
-      broker: { condition: service_healthy }
+      broker: {condition: service_healthy}
 
   profiles-block-builder:
     <<: [*crabka-image, *compactor-res]
@@ -395,8 +383,8 @@ services:
       CRABKA_PROFILES_WAL_POLL_TIMEOUT: "${CRABKA_PROFILES_WAL_POLL_TIMEOUT:-500ms}"
       OTEL_SERVICE_NAME: profiles-block-builder
     depends_on:
-      rustfs-setup: { condition: service_completed_successfully }
-      broker: { condition: service_healthy }
+      rustfs-setup: {condition: service_completed_successfully}
+      broker: {condition: service_healthy}
 
   profiles-querier:
     # --bootstrap is REQUIRED: the querier's hot WAL-tail consumer reads recent
@@ -417,8 +405,8 @@ services:
     # and the hot store stays empty -> profiles (especially sparse ones like memory)
     # return nothing until the container is restarted. Wait for the broker.
     depends_on:
-      rustfs-setup: { condition: service_completed_successfully }
-      broker: { condition: service_healthy }
+      rustfs-setup: {condition: service_completed_successfully}
+      broker: {condition: service_healthy}
 
   # ---- COLLECTOR + GRAFANA ----
   alloy:
@@ -430,7 +418,7 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
     ports: ["12345:12345"]
     depends_on:
-      broker: { condition: service_healthy }
+      broker: {condition: service_healthy}
 
   cadvisor:
     image: ghcr.io/google/cadvisor:v0.60.5
@@ -477,8 +465,8 @@ services:
       CRABKA_DEMO_SCHEMA_FETCH_RETRY_MAX_BACKOFF: "${CRABKA_DEMO_SCHEMA_FETCH_RETRY_MAX_BACKOFF:-1s}"
       CRABKA_DEMO_ORDERS_PER_SEC: "${CRABKA_DEMO_ORDERS_PER_SEC:-50}"
     depends_on:
-      topic-setup: { condition: service_completed_successfully }
-      schema-registry: { condition: service_healthy }
+      topic-setup: {condition: service_completed_successfully}
+      schema-registry: {condition: service_healthy}
 
   demo-stream:
     <<: [*crabka-image, *demo-res]
@@ -500,8 +488,8 @@ services:
       CRABKA_DEMO_SCHEMA_FETCH_RETRY_INITIAL_BACKOFF: "${CRABKA_DEMO_SCHEMA_FETCH_RETRY_INITIAL_BACKOFF:-10ms}"
       CRABKA_DEMO_SCHEMA_FETCH_RETRY_MAX_BACKOFF: "${CRABKA_DEMO_SCHEMA_FETCH_RETRY_MAX_BACKOFF:-1s}"
     depends_on:
-      topic-setup: { condition: service_completed_successfully }
-      schema-registry: { condition: service_healthy }
+      topic-setup: {condition: service_completed_successfully}
+      schema-registry: {condition: service_healthy}
 
   demo-consume:
     <<: [*crabka-image, *demo-res]
@@ -533,11 +521,11 @@ services:
       CRABKA_DEMO_CONSUMER_ISOLATION_LEVEL: "${CRABKA_DEMO_CONSUMER_ISOLATION_LEVEL:-read-uncommitted}"
       CRABKA_DEMO_CONSUMER_ASSIGNOR: "${CRABKA_DEMO_CONSUMER_ASSIGNOR:-range}"
     depends_on:
-      topic-setup: { condition: service_completed_successfully }
+      topic-setup: {condition: service_completed_successfully}
       # The traced consumer now deserialises Order via the registry (to enrich
       # its processing spans), so it must wait for schema-registry like the
       # producer/stream roles do.
-      schema-registry: { condition: service_healthy }
+      schema-registry: {condition: service_healthy}
 
   # ---- GRES (PostgreSQL-compatible SQL engine over the broker) ----
   # Single-node substrate mode: one compute that owns every range, with the
@@ -560,11 +548,9 @@ services:
       - /bin/sh
       - -c
       - >
-        crabka gres describe --bootstrap broker:9092 --name demo >/dev/null 2>&1 && exit 0;
-        printf '%s' "${CRABKA_GRES_PASSWORD:-demo}" | crabka gres create-tenant
-        --bootstrap broker:9092 --name demo --user demo --password-stdin
+        crabka gres describe --bootstrap broker:9092 --name demo >/dev/null 2>&1 && exit 0; printf '%s' "${CRABKA_GRES_PASSWORD:-demo}" | crabka gres create-tenant --bootstrap broker:9092 --name demo --user demo --password-stdin
     depends_on:
-      broker: { condition: service_healthy }
+      broker: {condition: service_healthy}
 
   gres:
     <<: [*crabka-image, *gres-res]
@@ -587,14 +573,14 @@ services:
     ports: ["5433:5433"]
     volumes: ["gres-cache:/data"]
     depends_on:
-      broker: { condition: service_healthy }
-      gres-setup: { condition: service_completed_successfully }
-    # No healthcheck on purpose. gres has no admin/metrics port, so the only
-    # probe available is a TCP connect — and every connect opens a pgwire
-    # session, which is itself a `gres.session` span. A probe on a timer would
-    # bury the workload's traces under empty single-span sessions in exactly
-    # the view this service exists to demonstrate. gres-workload waits for
-    # readiness by retrying `SELECT 1` instead.
+      broker: {condition: service_healthy}
+      gres-setup: {condition: service_completed_successfully}
+      # No healthcheck on purpose. gres has no admin/metrics port, so the only
+      # probe available is a TCP connect — and every connect opens a pgwire
+      # session, which is itself a `gres.session` span. A probe on a timer would
+      # bury the workload's traces under empty single-span sessions in exactly
+      # the view this service exists to demonstrate. gres-workload waits for
+      # readiness by retrying `SELECT 1` instead.
 
   # A gres with no clients emits no spans. This runs a small SQL loop —
   # INSERT, aggregate, point SELECT, plus one query carrying a client-supplied
@@ -613,7 +599,7 @@ services:
       CRABKA_GRES_WORKLOAD_CONNINFO: "host=gres port=5433 user=demo dbname=demo"
     volumes: ["./gres/workload.sh:/workload.sh:ro"]
     depends_on:
-      gres: { condition: service_started }
+      gres: {condition: service_started}
 
 volumes:
   broker-data:
