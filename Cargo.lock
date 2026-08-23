@@ -1086,7 +1086,7 @@ dependencies = [
 [[package]]
 name = "crabka-logfmt"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 dependencies = [
  "assert2",
  "serde_json",
@@ -1167,7 +1167,7 @@ dependencies = [
 [[package]]
 name = "crabka-telemetry"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 dependencies = [
  "assert2",
  "axum",
@@ -7060,17 +7060,17 @@ dependencies = [
 [[patch.unused]]
 name = "crabka-audit"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 
 [[patch.unused]]
 name = "crabka-authz"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 
 [[patch.unused]]
 name = "crabka-broker"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 
 [[patch.unused]]
 name = "crabka-client-admin"
@@ -7080,7 +7080,7 @@ source = "git+https://github.com/krabka-io/krabka-client-rs?rev=85cb612aa7975387
 [[patch.unused]]
 name = "crabka-format"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 
 [[patch.unused]]
 name = "crabka-kafka-tap"
@@ -7090,12 +7090,12 @@ source = "git+https://github.com/krabka-io/krabka-protocol?rev=ffc59acb02e7600e5
 [[patch.unused]]
 name = "crabka-kraft-core"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 
 [[patch.unused]]
 name = "crabka-log"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 
 [[patch.unused]]
 name = "crabka-metadata"
@@ -7105,37 +7105,37 @@ source = "git+https://github.com/krabka-io/krabka-protocol?rev=ffc59acb02e7600e5
 [[patch.unused]]
 name = "crabka-object-store"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 
 [[patch.unused]]
 name = "crabka-raft"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 
 [[patch.unused]]
 name = "crabka-records-legacy"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 
 [[patch.unused]]
 name = "crabka-remote-storage"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 
 [[patch.unused]]
 name = "crabka-remote-storage-topic"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 
 [[patch.unused]]
 name = "crabka-throttle"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 
 [[patch.unused]]
 name = "crabka-verified"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-broker?rev=745b6104a45f162c274305d86ffdb07b879eb179#745b6104a45f162c274305d86ffdb07b879eb179"
+source = "git+https://github.com/krabka-io/krabka-broker?rev=6fa18eaae7f3ec688753e4a4ddee2168f215555c#6fa18eaae7f3ec688753e4a4ddee2168f215555c"
 
 [[patch.unused]]
 name = "crabka-voters"
