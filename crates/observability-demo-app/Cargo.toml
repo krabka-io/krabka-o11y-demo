@@ -43,3 +43,4 @@ prost-build = { workspace = true }
 prost-reflect = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
+tower = { workspace = true, features = ["util"] }

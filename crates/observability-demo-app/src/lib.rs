@@ -148,6 +148,90 @@ mod tests {
         }
     }
 
+    /// Every field of `order_at` varies at its own period, and the periods are
+    /// what make the generated stream a broad cross-product rather than a
+    /// repeat. Pinning whole orders at indices where each divisor lands on a
+    /// different bucket is what holds those periods in place: `i / div` read as
+    /// `i * div`, or `i % 200` as `i + 200`, still produces a plausible order,
+    /// just not this one.
+    #[test]
+    fn order_at_pins_every_field_period() {
+        let cases = [
+            (
+                23_u64,
+                Order {
+                    order_id: "o-0000000023".to_string(),
+                    category: "toys".to_string(),
+                    amount: 23.99,
+                    currency: "USD".to_string(),
+                    ts_ms: 0,
+                    region: "ap-south".to_string(),
+                    payment_method: "crypto".to_string(),
+                    quantity: 4,
+                    customer_tier: "free".to_string(),
+                    warehouse: "wh-blr".to_string(),
+                },
+            ),
+            // 200 is where the dollar amount wraps: `i % 200` is 0 here, so the
+            // order costs 0.99 rather than 200.99.
+            (
+                200_u64,
+                Order {
+                    order_id: "o-0000000200".to_string(),
+                    category: "books".to_string(),
+                    amount: 0.99,
+                    currency: "USD".to_string(),
+                    ts_ms: 0,
+                    region: "us-east".to_string(),
+                    payment_method: "wire".to_string(),
+                    quantity: 1,
+                    customer_tier: "pro".to_string(),
+                    warehouse: "wh-atl".to_string(),
+                },
+            ),
+        ];
+
+        for (i, expected) in cases {
+            assert2::assert!(order_at(i) == expected, "order_at({i})");
+        }
+    }
+
+    /// `is_anomalous` is an exact-zero test written as a tolerance comparison.
+    /// A value sitting exactly on the tolerance is the one input that tells
+    /// `<` apart from `<=`, and it is not anomalous: the seeded anomalies are
+    /// exactly 0.0.
+    #[test]
+    fn is_anomalous_only_at_zero_not_at_the_tolerance() {
+        let at_epsilon = Order {
+            amount: f64::EPSILON,
+            ..order_at(1)
+        };
+        let zero = Order {
+            amount: 0.0,
+            ..order_at(1)
+        };
+
+        assert2::assert!(is_anomalous(&zero));
+        assert2::assert!(!is_anomalous(&at_epsilon));
+    }
+
+    /// The heuristic is a conjunction with a strict threshold. A non-crypto
+    /// order over the threshold, and a crypto order exactly on it, are the two
+    /// inputs that separate `&&` from `||` and `>` from `>=`.
+    #[test]
+    fn is_suspicious_needs_crypto_and_strictly_over_the_threshold() {
+        let order = |method: &str, amount: f64| Order {
+            payment_method: method.to_string(),
+            amount,
+            ..order_at(1)
+        };
+
+        assert2::assert!(is_suspicious(&order("crypto", 150.01)));
+        assert2::assert!(!is_suspicious(&order("crypto", 150.0)));
+        assert2::assert!(!is_suspicious(&order("card", 1_000.0)));
+        assert2::assert!(!is_suspicious(&order("card", 1.0)));
+    }
+
     #[test]
     fn outcome_classification_covers_the_three_paths() {
         let anomalous = order_at(17);

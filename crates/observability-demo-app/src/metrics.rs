@@ -217,6 +217,64 @@ mod tests {
 
     use super::*;
 
+    /// The `/metrics` route is the only thing that makes any of the recording
+    /// above observable, and it is two pieces: a router that maps the path, and
+    /// a handler that encodes the registry. Driving a real request through both
+    /// is what distinguishes them from an empty router and an empty response --
+    /// each of which still builds, serves, and returns a 200 from somewhere.
+    #[tokio::test]
+    async fn metrics_route_serves_the_encoded_registry() {
+        use tower::ServiceExt as _;
+
+        let m = DemoMetrics::new();
+        m.record_produced("books", "us-east", "card", 42.0, millis(2));
+
+        let response = metrics_router(Arc::clone(&m.registry))
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/metrics")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert2::assert!(response.status() == axum::http::StatusCode::OK);
+        assert2::assert!(
+            response
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                == Some("application/openmetrics-text; version=1.0.0; charset=utf-8")
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+        assert2::assert!(body.contains("crabka_demo_orders_produced_total"));
+        assert2::assert!(body.contains("category=\"books\""));
+    }
+
+    /// A path the router does not map is a 404, which is what an empty router
+    /// would return for `/metrics` too.
+    #[tokio::test]
+    async fn metrics_router_maps_only_the_metrics_path() {
+        use tower::ServiceExt as _;
+
+        let response = metrics_router(DemoMetrics::new().registry)
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/not-metrics")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert2::assert!(response.status() == axum::http::StatusCode::NOT_FOUND);
+    }
+
     #[tokio::test]
     async fn registry_has_demo_prefix_and_all_metrics() {
         let m = DemoMetrics::new();
