@@ -1035,7 +1035,7 @@ dependencies = [
 [[package]]
 name = "crabka-client-streams"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-streams-rs?rev=62d3b245cd02f214c986eb319d70a23ad2d8b810#62d3b245cd02f214c986eb319d70a23ad2d8b810"
+source = "git+https://github.com/krabka-io/krabka-streams-rs?rev=0d1826ef50175f3851bd93c3cd3ae9dd31540d16#0d1826ef50175f3851bd93c3cd3ae9dd31540d16"
 dependencies = [
  "async-trait",
  "bon",
@@ -1113,7 +1113,7 @@ dependencies = [
 [[package]]
 name = "crabka-schema-serde"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-streams-rs?rev=62d3b245cd02f214c986eb319d70a23ad2d8b810#62d3b245cd02f214c986eb319d70a23ad2d8b810"
+source = "git+https://github.com/krabka-io/krabka-streams-rs?rev=0d1826ef50175f3851bd93c3cd3ae9dd31540d16#0d1826ef50175f3851bd93c3cd3ae9dd31540d16"
 dependencies = [
  "apache-avro",
  "assert2",
