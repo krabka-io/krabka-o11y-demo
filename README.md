@@ -58,6 +58,12 @@ siblings, each pinned by revision in
 | [`krabka-streams-rs`](https://github.com/krabka-io/krabka-streams-rs) | The Streams runtime and schema serdes |
 | [`krabka-broker`](https://github.com/krabka-io/krabka-broker) | Telemetry, which is how the app exports its own signals |
 
+## Roadmap
+
+[`docs/ROADMAP.md`](docs/ROADMAP.md) records the planned work: four milestones, six
+epics and the issues under them. The issues in this repository are the source of
+truth, and the document records what they say.
+
 ## Build
 
 ```bash
