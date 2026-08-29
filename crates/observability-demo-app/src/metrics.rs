@@ -1,4 +1,4 @@
-//! Demo-app business metrics for Prometheus, with the prefix `crabka_demo`.
+//! Demo-app business metrics for Prometheus, with the prefix `krabka_demo`.
 //!
 //! This module mirrors the metric shape of the observability services. It holds
 //! a `prometheus-client` [`Registry`] in an `Arc<Mutex<…>>`, a
@@ -18,7 +18,7 @@
 
 use std::sync::Arc;
 
-use crabka_units::{Time, convert::TimeExt as _};
+use krabka_units::{Time, convert::TimeExt as _};
 use prometheus_client::{
     encoding::EncodeLabelSet,
     metrics::{counter::Counter, family::Family, histogram::Histogram},
@@ -69,7 +69,7 @@ impl DemoMetrics {
     /// Build a fresh registry, register every metric, and return the bundle.
     #[must_use]
     pub fn new() -> Self {
-        let mut registry = Registry::with_prefix("crabka_demo");
+        let mut registry = Registry::with_prefix("krabka_demo");
 
         let orders_produced = Family::<ProducedLabel, Counter>::default();
         let order_value_dollars =
@@ -213,7 +213,7 @@ async fn export(
 #[cfg(test)]
 mod tests {
 
-    use crabka_units::{micros, millis};
+    use krabka_units::{micros, millis};
 
     use super::*;
 
@@ -252,7 +252,7 @@ mod tests {
             .await
             .unwrap();
         let body = String::from_utf8(body.to_vec()).unwrap();
-        assert2::assert!(body.contains("crabka_demo_orders_produced_total"));
+        assert2::assert!(body.contains("krabka_demo_orders_produced_total"));
         assert2::assert!(body.contains("category=\"books\""));
     }
 
@@ -288,12 +288,12 @@ mod tests {
         prometheus_client::encoding::text::encode(&mut buf, &r).unwrap();
 
         for needle in [
-            "crabka_demo_orders_produced_total",
-            "crabka_demo_order_value_dollars",
-            "crabka_demo_produce_latency_seconds",
-            "crabka_demo_orders_processed_total",
-            "crabka_demo_process_stage_latency_seconds",
-            "crabka_demo_order_processing_latency_seconds",
+            "krabka_demo_orders_produced_total",
+            "krabka_demo_order_value_dollars",
+            "krabka_demo_produce_latency_seconds",
+            "krabka_demo_orders_processed_total",
+            "krabka_demo_process_stage_latency_seconds",
+            "krabka_demo_order_processing_latency_seconds",
         ] {
             assert2::assert!(buf.contains(needle));
         }

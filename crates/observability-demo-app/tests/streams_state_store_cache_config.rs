@@ -10,7 +10,7 @@ fn demo() -> Command {
 fn environment_is_used_and_cli_wins_before_external_io() {
     let environment = demo()
         .args(["--role", "produce"])
-        .env("CRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX", "37B")
+        .env("KRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX", "37B")
         .output()
         .expect("run demo");
     assert!(!environment.status.success());
@@ -26,7 +26,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
             "--streams-state-store-cache-max",
             "41B",
         ])
-        .env("CRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX", "37B")
+        .env("KRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX", "37B")
         .output()
         .expect("run demo");
     assert!(!cli.status.success());
@@ -40,7 +40,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
 fn negative_fails_early_zero_is_parseable_and_help_lists_the_flag_once() {
     let negative = demo()
         .args(["--role", "stream"])
-        .env("CRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX", "-1B")
+        .env("KRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX", "-1B")
         .output()
         .expect("run demo");
     assert!(!negative.status.success());
@@ -48,7 +48,7 @@ fn negative_fails_early_zero_is_parseable_and_help_lists_the_flag_once() {
 
     let zero = demo()
         .args(["--role", "produce"])
-        .env("CRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX", "0B")
+        .env("KRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX", "0B")
         .output()
         .expect("run demo");
     assert!(!zero.status.success());

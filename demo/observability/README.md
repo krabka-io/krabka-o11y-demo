@@ -1,17 +1,17 @@
-# Crabka full-signal observability demo
+# Krabka full-signal observability demo
 
-One `docker compose up` command starts Grafana over Crabka's four observability
-backends: metrics, traces, logs, and profiles. Crabka exports all four of its own
-signals into those backends. An instrumented `crabka-client-streams` orders
-pipeline runs its Kafka traffic on Crabka.
+One `docker compose up` command starts Grafana over Krabka's four observability
+backends: metrics, traces, logs, and profiles. Krabka exports all four of its own
+signals into those backends. An instrumented `krabka-client-streams` orders
+pipeline runs its Kafka traffic on Krabka.
 
-`crabka-gres` runs with them and exports a per-query trace waterfall. It is the
+`krabka-gres` runs with them and exports a per-query trace waterfall. It is the
 PostgreSQL-compatible SQL engine whose write-ahead log is in the same broker.
 See [Gres query traces](#gres-query-traces).
 
-One `crabka-broker` does three jobs. It is the event bus of the demo app, the
+One `krabka-broker` does three jobs. It is the event bus of the demo app, the
 write-ahead log for all four telemetry backends, and a self-observed subject.
-One Grafana Alloy collects every signal from both sources, which are Crabka's own
+One Grafana Alloy collects every signal from both sources, which are Krabka's own
 processes and the demo app. Alloy writes to the backends. The backends persist
 their data through the broker as a WAL and through a shared RustFS bucket set as
 blocks.
@@ -32,14 +32,14 @@ Data appears a few minutes after startup, when Alloy collects signals and the
 block-builders flush their first blocks. Allow about 3 to 5 minutes on a cold
 start. The queriers refresh their indexes automatically.
 
-Tune the load with `CRABKA_DEMO_ORDERS_PER_SEC` on the `demo-produce` service.
+Tune the load with `KRABKA_DEMO_ORDERS_PER_SEC` on the `demo-produce` service.
 The default is `50`, and `0` pauses production. Tune the SQL load with
-`CRABKA_GRES_WORKLOAD_INTERVAL` on `gres-workload`, which defaults to `5`
+`KRABKA_GRES_WORKLOAD_INTERVAL` on `gres-workload`, which defaults to `5`
 seconds between passes. Lower both values on a constrained host. Plan for
 **≥ 8 GB** of Docker memory, because the demo runs about 23 containers.
 
 Gres listens on `localhost:5433` as the `demo` tenant. It takes the SQL password
-from `CRABKA_GRES_PASSWORD`, which defaults to `demo`:
+from `KRABKA_GRES_PASSWORD`, which defaults to `demo`:
 
 ```bash
 PGPASSWORD=demo psql 'host=localhost port=5433 user=demo dbname=demo' \
@@ -71,25 +71,25 @@ the live S3-visible object sizes:
 
 ```bash
 docker system df -v
-docker volume ls --filter name=crabka-observability-demo
+docker volume ls --filter name=krabka-observability-demo
 ```
 
-`crabka-observability-demo_rustfs-data` and
-`crabka-observability-demo_broker-data` usually hold most of the demo's
+`krabka-observability-demo_rustfs-data` and
+`krabka-observability-demo_broker-data` usually hold most of the demo's
 persistent data. If a host ran older demo images, RustFS can still contain many
 UUID-named backend directories below legacy keys. Examples are
-`crabka-traces/index/traces.json`, `crabka-profiles/index/profiles.json`, and
-`crabka-logs/logs/tenant=demo/index/logs/manifest.json`. Those directories are
+`krabka-traces/index/traces.json`, `krabka-profiles/index/profiles.json`, and
+`krabka-logs/logs/tenant=demo/index/logs/manifest.json`. Those directories are
 old overwrite generations, not more logical S3 objects. To reclaim them
 reliably, create the compose volumes again.
 
-The old MinIO fixture used `crabka-observability-demo_minio-data`. This compose
+The old MinIO fixture used `krabka-observability-demo_minio-data`. This compose
 file does not use that volume after the change to RustFS, so you can delete it
 if no older checkout needs it.
 
 The traces block-builder has its own replay cap in
-`CRABKA_TRACES_BLOCK_BUILDER_MEM`, which defaults to `4g`. It also has a lower
-flush size in `CRABKA_TRACES_BLOCK_BUILDER_FLUSH_MAX_RECORDS`, which defaults to
+`KRABKA_TRACES_BLOCK_BUILDER_MEM`, which defaults to `4g`. It also has a lower
+flush size in `KRABKA_TRACES_BLOCK_BUILDER_FLUSH_MAX_RECORDS`, which defaults to
 `5000`. A cold start can replay a burst of broker self-traces before steady
 state. These settings prevent a replay-time OOM and keep the normal RSS small.
 
@@ -106,7 +106,7 @@ go install chainguard.dev/apko@latest
 
 mkdir -p packages .melange-cache
 melange keygen melange.rsa
-melange build packaging/melange/crabka-demo.yaml \
+melange build packaging/melange/krabka-demo.yaml \
   --source-dir . \
   --signing-key melange.rsa \
   --arch x86_64 \
@@ -114,14 +114,14 @@ melange build packaging/melange/crabka-demo.yaml \
   --cache-dir "$PWD/.melange-cache" \
   --out-dir packages/
 
-apko build packaging/apko/crabka-demo.yaml \
+apko build packaging/apko/krabka-demo.yaml \
   ghcr.io/robot-head/crabka-demo:latest \
-  crabka-demo.tar \
+  krabka-demo.tar \
   --arch x86_64 \
   --repository-append "$PWD/packages" \
   --keyring-append "$PWD/melange.rsa.pub"
 
-docker load < crabka-demo.tar
+docker load < krabka-demo.tar
 cd demo/observability && docker compose up -d
 ```
 
@@ -131,13 +131,13 @@ image tag.
 
 ## What you should see
 
-- **Explore → Crabka Metrics** (Prometheus). `{job=”broker”}` gives the broker's
-  own metrics. `{__name__=~”crabka_demo_.*”}` gives the demo app's business
+- **Explore → Krabka Metrics** (Prometheus). `{job=”broker”}` gives the broker's
+  own metrics. `{__name__=~”krabka_demo_.*”}` gives the demo app's business
   metrics: orders by category × region × payment method, order value, per-stage
   processing latency, and outcomes.
-- **Explore → Crabka Logs** (Loki). `{service_name=”broker”}` and
+- **Explore → Krabka Logs** (Loki). `{service_name=”broker”}` and
   `{service_name=~”demo-.*”}` give JSON logs.
-- **Explore → Crabka Traces** (Tempo). TraceQL `{}` gives broker and demo-app
+- **Explore → Krabka Traces** (Tempo). TraceQL `{}` gives broker and demo-app
   spans. **Cross-service distributed traces:** search `{ name = “produce_order” }`,
   or open any `demo-produce` trace. Each traced order is one trace across
   **demo-produce → demo-consume**. A W3C `traceparent` Kafka record header
@@ -149,25 +149,25 @@ image tag.
   can see a distributor → broker (WAL) → block-builder trace. Gres contributes a
   per-query waterfall. Search `{ resource.service.name = "gres" }`.
   [Gres query traces](#gres-query-traces) describes it.
-- **Explore → Crabka Profiles** (Pyroscope). The Crabka services give CPU and heap flamegraphs. The demo app roles give CPU flamegraphs.
-- The **"Crabka observes Crabka"** dashboard in folder *Crabka* shows one panel
-  per signal and querier heap flamegraphs. The **"Crabka — Orders Demo"**
+- **Explore → Krabka Profiles** (Pyroscope). The Krabka services give CPU and heap flamegraphs. The demo app roles give CPU flamegraphs.
+- The **"Krabka observes Krabka"** dashboard in folder *Krabka* shows one panel
+  per signal and querier heap flamegraphs. The **"Krabka — Orders Demo"**
   dashboard shows the demo pipeline's business metrics.
 
 ## Gres query traces
 
-`crabka-gres` is a PostgreSQL-compatible SQL engine whose write-ahead log is a
+`krabka-gres` is a PostgreSQL-compatible SQL engine whose write-ahead log is a
 topic on the same broker. The demo runs one instance in single-node substrate
 mode on `localhost:5433`. `gres-setup` writes the tenant's registry record first,
 because gres refuses to start without one. `gres-workload` then drives a small
 SQL loop against gres with an insert, an aggregate, a point read, and a periodic
-delete, so there is always a fresh trace to open. The **Crabka — Gres Query
+delete, so there is always a fresh trace to open. The **Krabka — Gres Query
 Traces** dashboard is the quickest way to start. TraceQL
 `{ resource.service.name = "gres" }` in Explore also works.
 
 Both services need a demo image that was built after gres joined it. If
 `gres-setup` reports `unrecognized subcommand 'gres'`, or if `gres` cannot find
-`crabka-gres`, the local image is older than that change. [Rebuild it from
+`krabka-gres`, the local image is older than that change. [Rebuild it from
 source](#rebuild-from-source).
 
 One statement produces a waterfall similar to this:
@@ -193,7 +193,7 @@ commits are slow.
 
 `pg.blocking_worker`, `pg.scan`, `pg.read_context` and the contended-row-lock
 spans are at the `TRACE` level and are off by default. To see them, add
-`crabka_pgexec::exec=trace` to `CRABKA_OTLP_FILTER` on the `gres` service.
+`krabka_pgexec::exec=trace` to `KRABKA_OTLP_FILTER` on the `gres` service.
 
 **Naming note.** The statement spans set `otel.name` to the query summary, so
 they export as `SELECT demo_orders` and not as `db.statement`. Select them by
@@ -216,14 +216,14 @@ PGPASSWORD=demo psql 'host=localhost port=5433 user=demo dbname=demo' -c \
   "SELECT count(*) FROM demo_orders /*traceparent='00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'*/"
 ```
 
-Then search for that trace id in Explore → Crabka Traces. The comment is `00-`,
+Then search for that trace id in Explore → Krabka Traces. The comment is `00-`,
 a 32-hex trace id, a 16-hex span id, and 2 hex flags. `01` means sampled. The SQL
 parser ignores the comment, so the statement runs unchanged. Gres drops a
 malformed comment silently and does not fail the query.
 
 OTel-instrumented Postgres drivers emit exactly this shape on every statement,
 so an application request and the queries that it causes go into one trace.
-`SET crabka.traceparent = '…'` does the same for a whole session. It is the only
+`SET krabka.traceparent = '…'` does the same for a whole session. It is the only
 channel that works for the extended protocol, where `Execute` carries no SQL to
 comment on.
 
@@ -234,9 +234,9 @@ with the same configuration still agree, and traces stay whole.
 
 ### Verbatim SQL is off by default
 
-`CRABKA_OTLP_SQL_TEXT=true` attaches the statement as sent, with the literals,
+`KRABKA_OTLP_SQL_TEXT=true` attaches the statement as sent, with the literals,
 as `db.query.text`. The `.env` file exposes this setting as
-`CRABKA_GRES_OTLP_SQL_TEXT`. It is off because it is the one setting here that
+`KRABKA_GRES_OTLP_SQL_TEXT`. It is off because it is the one setting here that
 exports personal data or secrets, for example
 `INSERT INTO users VALUES ('123-45-6789', …)` and `ALTER ROLE app PASSWORD …`.
 Anything that reaches the collector reaches everyone who can read the trace
@@ -247,7 +247,7 @@ latency without a single literal.
 
 ### Sampling
 
-Every other service here head-samples at 5% with `CRABKA_OTLP_SAMPLE_RATIO` in
+Every other service here head-samples at 5% with `KRABKA_OTLP_SAMPLE_RATIO` in
 the `x-otlp-env` anchor. The traces pipeline traces its own span ingest, and the
 feedback loop diverges at 1.0. Gres is a database, not a trace backend, and its
 spans never re-enter their own ingest path. Gres therefore overrides the anchor
@@ -267,35 +267,35 @@ try.
 
 ## Dashboards & alerts
 
-Every Crabka service exports Prometheus metrics on its admin port `:9404` at
+Every Krabka service exports Prometheus metrics on its admin port `:9404` at
 `/metrics`. The broker exports them through its metrics server. The four
 observability services for metrics, logs, traces, and profiles export them
 through the shared profiling-admin server, in all roles. Alloy scrapes them with
 a `job` label per compose service, so the dashboards and alerts select per
 service and per role.
 
-Provisioned dashboards in folder *Crabka*:
+Provisioned dashboards in folder *Krabka*:
 
-- **Crabka — Overview**: fleet liveness, ingest and query rate, error ratio per
+- **Krabka — Overview**: fleet liveness, ingest and query rate, error ratio per
   subsystem, and broker throughput.
-- **Crabka — Orders Demo**: the demo pipeline's business metrics
-  (`crabka_demo_*`). Orders produced and processed by category × region ×
+- **Krabka — Orders Demo**: the demo pipeline's business metrics
+  (`krabka_demo_*`). Orders produced and processed by category × region ×
   payment method, order-value distribution, per-stage processing latency, and
   fulfilled / fraud-rejected / anomalous outcomes.
-- **Crabka — Runtime Resources**: container CPU, working-set memory, memory
-  limit ratio, CPU throttling, and top memory users across Crabka plus Grafana,
+- **Krabka — Runtime Resources**: container CPU, working-set memory, memory
+  limit ratio, CPU throttling, and top memory users across Krabka plus Grafana,
   Alloy, cAdvisor, and RustFS.
-- **Crabka — Broker**: Kafka throughput, produce and fetch, partitions, ISR and
+- **Krabka — Broker**: Kafka throughput, produce and fetch, partitions, ISR and
   controller health, and the FedRAMP-MLA audit pipeline.
-- **Crabka — Metrics / Logs / Traces / Profiles**: per-subsystem RED. The
+- **Krabka — Metrics / Logs / Traces / Profiles**: per-subsystem RED. The
   distributor gives ingest rate, bytes, errors, and latency. The querier gives
   query rate, errors, and p99 latency by route. The dashboards also show WAL
   append failures and per-role liveness.
-- **Crabka — Gres Query Traces**: the SQL engine's query waterfall. It shows
+- **Krabka — Gres Query Traces**: the SQL engine's query waterfall. It shows
   recent traces, statement spans, slow and failed statements, executor reads,
   commits and WAL appends, plus a panel that explains how to join your own trace.
 
-Provisioned Grafana-managed alerts are in folder *Crabka Alerts* and
+Provisioned Grafana-managed alerts are in folder *Krabka Alerts* and
 `grafana/provisioning/alerting/`. The broker alerts are no active controller,
 offline partitions, under-min-ISR, under-replicated, and audit write failures.
 The observability alerts are service down, per-subsystem ingest error
@@ -309,7 +309,7 @@ resolves it.
 ```bash
 # metrics (Prometheus API) — the broker's own request counter
 curl -s -H 'X-Scope-OrgID: demo' \
-  'http://localhost:9090/api/v1/query?query=crabka_broker_api_requests_total' | head -c 200
+  'http://localhost:9090/api/v1/query?query=krabka_broker_api_requests_total' | head -c 200
 # logs (Loki labels)
 curl -s -H 'X-Scope-OrgID: demo' 'http://localhost:3100/loki/api/v1/labels'
 # traces (TraceQL search — any service)
@@ -327,10 +327,10 @@ curl -s -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' \
 ## Layout
 
 - `docker-compose.yml`: the stack
-- `../../packaging/melange/crabka-demo.yaml`: builds the all-in-one demo APK package
-- `../../packaging/apko/crabka-demo.yaml`: assembles the demo OCI image from that package
+- `../../packaging/melange/krabka-demo.yaml`: builds the all-in-one demo APK package
+- `../../packaging/apko/krabka-demo.yaml`: assembles the demo OCI image from that package
 - `alloy/config.alloy`: Alloy collects all four signals from both sources and
   scrapes cAdvisor container resource metrics
 - `grafana/provisioning/`: datasources, the dashboards for the overview, the broker, one per subsystem, and the gres query traces, and the alert rules
-- `rustfs/bootstrap.sh`: creates one bucket per signal (`crabka-metrics`, `crabka-traces`, `crabka-logs`, `crabka-profiles`)
+- `rustfs/bootstrap.sh`: creates one bucket per signal (`krabka-metrics`, `krabka-traces`, `krabka-logs`, `krabka-profiles`)
 - `gres/workload.sh`: the SQL loop that makes gres produce query traces

@@ -10,7 +10,7 @@ fn demo() -> Command {
 fn environment_is_used_and_cli_wins_before_external_io() {
     let environment = demo()
         .args(["--role", "produce"])
-        .env("CRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF", "37ms")
+        .env("KRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF", "37ms")
         .output()
         .expect("run demo");
     assert!(!environment.status.success());
@@ -21,7 +21,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
 
     let cli = demo()
         .args(["--role", "produce", "--streams-join-retry-backoff", "41ms"])
-        .env("CRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF", "37ms")
+        .env("KRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF", "37ms")
         .output()
         .expect("run demo");
     assert!(!cli.status.success());
@@ -35,7 +35,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
 fn zero_fails_early_and_help_lists_the_flag_once() {
     let zero = demo()
         .args(["--role", "stream"])
-        .env("CRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF", "0ms")
+        .env("KRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF", "0ms")
         .output()
         .expect("run demo");
     assert!(!zero.status.success());

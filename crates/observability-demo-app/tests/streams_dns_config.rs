@@ -8,7 +8,7 @@ fn demo() -> Command {
 fn environment_is_used_and_cli_wins_before_external_io() {
     let environment = demo()
         .args(["--role", "produce"])
-        .env("CRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT", "37ms")
+        .env("KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT", "37ms")
         .output()
         .expect("run demo");
     assert!(!environment.status.success());
@@ -19,7 +19,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
 
     let cli = demo()
         .args(["--role", "produce", "--streams-broker-dns-timeout", "41ms"])
-        .env("CRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT", "37ms")
+        .env("KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT", "37ms")
         .output()
         .expect("run demo");
     assert!(!cli.status.success());
@@ -33,7 +33,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
 fn zero_environment_value_is_rejected_and_help_lists_the_flag_once() {
     let zero = demo()
         .args(["--role", "stream"])
-        .env("CRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT", "0ms")
+        .env("KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT", "0ms")
         .output()
         .expect("run demo");
     assert!(!zero.status.success());

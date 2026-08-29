@@ -15,11 +15,11 @@ otelcol.receiver.otlp "in" {
 }
 
 // Convert OTLP metrics (for example RustFS native observability metrics) into
-// Prometheus samples and remote-write them into Crabka Metrics. Keep metric
+// Prometheus samples and remote-write them into Krabka Metrics. Keep metric
 // names as emitted by the source so dashboards can use RustFS's documented
 // rustfs_<subsystem>_<metric> names directly.
 otelcol.exporter.prometheus "otlp_metrics" {
-	forward_to = [prometheus.remote_write.crabka.receiver]
+	forward_to = [prometheus.remote_write.krabka.receiver]
 
 	add_metric_suffixes              = false
 	include_scope_info               = false
@@ -49,15 +49,15 @@ otelcol.exporter.otlphttp "traces" {
 	}
 }
 
-// ---------------- Metrics: scrape every Crabka service's :9404 /metrics ----------------
-// Every Crabka service exposes a Prometheus exporter on its admin port 9404
+// ---------------- Metrics: scrape every Krabka service's :9404 /metrics ----------------
+// Every Krabka service exposes a Prometheus exporter on its admin port 9404
 // (the broker via its metrics server; the four observability services via the
 // shared profiling-admin server, across all roles). The `job` label carries the
 // compose service name so dashboards/alerts can select per service+role. The
-// demo apps also expose /metrics on 9404 now (crabka_demo_* business metrics:
+// demo apps also expose /metrics on 9404 now (krabka_demo_* business metrics:
 // orders produced/processed by category×region×payment, order value, per-stage
 // processing latency) alongside their pprof endpoint, so they are scraped too.
-prometheus.scrape "crabka" {
+prometheus.scrape "krabka" {
 	targets = [
 		{__address__ = "broker:9404", job = "broker"},
 		{__address__ = "metrics-distributor:9404", job = "metrics-distributor"},
@@ -77,10 +77,10 @@ prometheus.scrape "crabka" {
 		{__address__ = "demo-consume:9404", job = "demo-consume"},
 	]
 	scrape_interval = "15s"
-	forward_to      = [prometheus.remote_write.crabka.receiver]
+	forward_to      = [prometheus.remote_write.krabka.receiver]
 }
 
-// Container-level runtime metrics for both Crabka and the supporting
+// Container-level runtime metrics for both Krabka and the supporting
 // observability stack. cAdvisor contributes CPU, memory working set, RSS/cache,
 // limits, throttling, network, and filesystem metrics labeled with Docker
 // Compose service metadata.
@@ -93,7 +93,7 @@ prometheus.scrape "containers" {
 }
 
 prometheus.relabel "container_resources" {
-	forward_to = [prometheus.remote_write.crabka.receiver]
+	forward_to = [prometheus.remote_write.krabka.receiver]
 
 	rule {
 		action        = "keep"
@@ -104,7 +104,7 @@ prometheus.relabel "container_resources" {
 	rule {
 		action        = "keep"
 		source_labels = ["container_label_com_docker_compose_project"]
-		regex         = "crabka-observability-.*"
+		regex         = "krabka-observability-.*"
 	}
 
 	rule {
@@ -113,7 +113,7 @@ prometheus.relabel "container_resources" {
 	}
 }
 
-prometheus.remote_write "crabka" {
+prometheus.remote_write "krabka" {
 	endpoint {
 		url     = "http://metrics-distributor:4041/api/v1/push"
 		headers = {"X-Scope-OrgID" = "demo"}
@@ -132,7 +132,7 @@ discovery.relabel "containers" {
 
 	rule {
 		source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
-		regex         = "crabka-observability-.*"
+		regex         = "krabka-observability-.*"
 		action        = "keep"
 	}
 
@@ -150,18 +150,18 @@ discovery.relabel "containers" {
 loki.source.docker "containers" {
 	host       = "unix:///var/run/docker.sock"
 	targets    = discovery.relabel.containers.output
-	forward_to = [loki.write.crabka.receiver]
+	forward_to = [loki.write.krabka.receiver]
 }
 
-loki.write "crabka" {
+loki.write "krabka" {
 	endpoint {
 		url     = "http://logs-distributor:3100/loki/api/v1/push"
 		headers = {"X-Scope-OrgID" = "demo"}
 	}
 }
 
-// ---------------- Profiles: scrape Crabka :9404 pprof → Pyroscope ----------------
-// Three scrape blocks keep target sets explicit. Crabka service binaries are
+// ---------------- Profiles: scrape Krabka :9404 pprof → Pyroscope ----------------
+// Three scrape blocks keep target sets explicit. Krabka service binaries are
 // built `--features heap-profiling` in the demo image, so they expose CPU and
 // jemalloc heap at /debug/pprof/{profile,heap}. Demo app roles are CPU-only:
 // they depend on Turso, which already defines a global allocator.
@@ -169,7 +169,7 @@ loki.write "crabka" {
 // `delta_profiling_duration = "5s"` keeps CPU profiles useful without
 // near-continuous SIGPROF overhead; Alloy's default delta window is based on the
 // scrape interval and would otherwise profile each process for almost all 60s.
-pyroscope.scrape "crabka_services" {
+pyroscope.scrape "krabka_services" {
 	targets = [
 		{__address__ = "broker:9404", service_name = "broker"},
 		{__address__ = "metrics-distributor:9404", service_name = "metrics-distributor"},
@@ -202,7 +202,7 @@ pyroscope.scrape "crabka_services" {
 			enabled = false
 		}
 	}
-	forward_to = [pyroscope.write.crabka.receiver]
+	forward_to = [pyroscope.write.krabka.receiver]
 }
 
 // Demo apps: CPU only. They are not built with --features heap-profiling because
@@ -236,7 +236,7 @@ pyroscope.scrape "demo_apps" {
 			enabled = false
 		}
 	}
-	forward_to = [pyroscope.write.crabka.receiver]
+	forward_to = [pyroscope.write.krabka.receiver]
 }
 
 // demo-consume is intentionally light on CPU. A 5s CPU profile often contains
@@ -271,7 +271,7 @@ pyroscope.scrape "demo_consume_cpu" {
 			enabled = false
 		}
 	}
-	forward_to = [pyroscope.write.crabka.receiver]
+	forward_to = [pyroscope.write.krabka.receiver]
 }
 
 // Trace roles expose CPU pprof but not jemalloc heap pprof. Their worker roles
@@ -307,7 +307,7 @@ pyroscope.scrape "trace_cpu" {
 			enabled = false
 		}
 	}
-	forward_to = [pyroscope.write.crabka.receiver]
+	forward_to = [pyroscope.write.krabka.receiver]
 }
 
 pyroscope.scrape "trace_block_builder_cpu" {
@@ -339,16 +339,16 @@ pyroscope.scrape "trace_block_builder_cpu" {
 			enabled = false
 		}
 	}
-	forward_to = [pyroscope.write.crabka.receiver]
+	forward_to = [pyroscope.write.krabka.receiver]
 }
 
 // CPU + jemalloc heap profiling for the compaction / block-builder / querier
-// roles that the `crabka_services` block above (broker + distributors +
+// roles that the `krabka_services` block above (broker + distributors +
 // schema-registry) does not cover and that expose /debug/pprof/heap. Worker CPU
 // pprof is intentionally less frequent than service/distributor pprof:
 // profiling a mostly-idle compactor for 5s every minute shows up as artificial
 // steady CPU.
-pyroscope.scrape "crabka_workers" {
+pyroscope.scrape "krabka_workers" {
 	targets = [
 		{__address__ = "metrics-compactor:9404", service_name = "metrics-compactor"},
 		{__address__ = "metrics-querier:9404", service_name = "metrics-querier"},
@@ -382,10 +382,10 @@ pyroscope.scrape "crabka_workers" {
 			enabled = false
 		}
 	}
-	forward_to = [pyroscope.write.crabka.receiver]
+	forward_to = [pyroscope.write.krabka.receiver]
 }
 
-pyroscope.write "crabka" {
+pyroscope.write "krabka" {
 	endpoint {
 		url     = "http://profiles-distributor:4040"
 		headers = {"X-Scope-OrgID" = "demo"}

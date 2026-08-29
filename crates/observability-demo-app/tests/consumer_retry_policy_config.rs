@@ -10,7 +10,7 @@ fn demo() -> Command {
 fn environment_is_used_and_cli_wins_before_external_io() {
     let environment = demo()
         .args(["--role", "produce"])
-        .env("CRABKA_DEMO_CONSUMER_STARTUP_DEADLINE", "37s")
+        .env("KRABKA_DEMO_CONSUMER_STARTUP_DEADLINE", "37s")
         .output()
         .expect("run demo");
     assert!(!environment.status.success());
@@ -21,7 +21,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
 
     let cli = demo()
         .args(["--role", "stream", "--consumer-startup-deadline", "41s"])
-        .env("CRABKA_DEMO_CONSUMER_STARTUP_DEADLINE", "37s")
+        .env("KRABKA_DEMO_CONSUMER_STARTUP_DEADLINE", "37s")
         .output()
         .expect("run demo");
     assert!(!cli.status.success());

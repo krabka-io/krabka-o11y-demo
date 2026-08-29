@@ -1,8 +1,8 @@
 //! Instrumented orders-analytics demo.
 //!
-//! There are three roles. All of them run on crabka-broker with the schema
+//! There are three roles. All of them run on krabka-broker with the schema
 //! registry, and they emit metrics, logs, traces, and profiles through the
-//! crabka libraries.
+//! krabka libraries.
 //!
 //! The demo shows cross-service traces. The `produce` role injects the current
 //! span's W3C trace context, `traceparent`, into the Kafka headers of each
@@ -23,27 +23,27 @@ use std::{
 
 use bytes::Bytes;
 use clap::{Parser, ValueEnum};
-use crabka_client_consumer::{
+use krabka_client_consumer::{
     Assignor, AutoOffsetReset, Consumer, ConsumerFetchMaxBytes, ConsumerFetchPartitionMaxBytes,
     ConsumerLeaveGroupTimeout, ConsumerRecord, ConsumerRetryPolicy,
     ConsumerSubscriptionMetadataRefreshInterval, IsolationLevel,
 };
-use crabka_client_core::{
+use krabka_client_core::{
     ClientFrameMax, ConnectionDispatchQueueCapacity, DEFAULT_CONNECTION_DISPATCH_QUEUE_CAPACITY,
     FetchMinBytes,
 };
-use crabka_client_producer::{Acks, Header, Producer, ProducerRecord};
-use crabka_client_streams::{
+use krabka_client_producer::{Acks, Header, Producer, ProducerRecord};
+use krabka_client_streams::{
     ClientDnsTimeout, SchemaSerde, Serde, StreamsCommitInterval,
     StreamsInteractiveQueryQueueCapacity, StreamsJoinRetryBackoff, StreamsLeaveHeartbeatTimeout,
     StreamsPollInterval, StreamsRebalanceTimeout, StreamsStateStoreCacheMaxBytes,
     processor::serde::SerdeRole,
 };
-use crabka_schema_serde::{
+use krabka_schema_serde::{
     CacheConfig, RegistryClient, SchemaCache, SchemaFetchRetryPolicy,
     format::protobuf::ProtobufSerde, set_default_registry,
 };
-use crabka_units::{fmt::Human as _, parse, prelude::*};
+use krabka_units::{fmt::Human as _, parse, prelude::*};
 use observability_demo_app::{
     Order, classify_outcome, is_anomalous,
     metrics::{DemoMetrics, metrics_router},
@@ -70,15 +70,15 @@ enum Role {
 #[command(name = "observability-demo-app")]
 struct Cli {
     #[command(flatten)]
-    profiling: crabka_telemetry::profiling::ProfilingConfig,
-    #[arg(long, env = "CRABKA_DEMO_ROLE", value_enum)]
+    profiling: krabka_telemetry::profiling::ProfilingConfig,
+    #[arg(long, env = "KRABKA_DEMO_ROLE", value_enum)]
     role: Role,
-    #[arg(long, env = "CRABKA_DEMO_BOOTSTRAP", default_value = "127.0.0.1:9092")]
+    #[arg(long, env = "KRABKA_DEMO_BOOTSTRAP", default_value = "127.0.0.1:9092")]
     bootstrap: String,
     /// Capacity shared by every outbound Kafka client owned by this process.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CLIENT_DISPATCH_QUEUE_CAPACITY",
+        env = "KRABKA_DEMO_CLIENT_DISPATCH_QUEUE_CAPACITY",
         default_value_t = DEFAULT_CONNECTION_DISPATCH_QUEUE_CAPACITY,
         value_parser = parse_client_dispatch_queue_capacity
     )]
@@ -86,248 +86,248 @@ struct Cli {
     /// Maximum frame size shared by every outbound Kafka client.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CLIENT_FRAME_MAX",
+        env = "KRABKA_DEMO_CLIENT_FRAME_MAX",
         default_value = "100MiB",
         value_parser = parse_client_frame_max
     )]
     client_frame_max: ByteSize,
     #[arg(
         long,
-        env = "CRABKA_DEMO_REGISTRY",
+        env = "KRABKA_DEMO_REGISTRY",
         default_value = "http://127.0.0.1:8081"
     )]
     registry: String,
     /// Initial delay before retrying a transient Schema Registry fetch failure.
     #[arg(
         long,
-        env = "CRABKA_DEMO_SCHEMA_FETCH_RETRY_INITIAL_BACKOFF",
+        env = "KRABKA_DEMO_SCHEMA_FETCH_RETRY_INITIAL_BACKOFF",
         value_parser = parse::positive_time
     )]
     schema_fetch_retry_initial_backoff: Option<Time>,
     /// Maximum delay between transient Schema Registry fetch retries.
     #[arg(
         long,
-        env = "CRABKA_DEMO_SCHEMA_FETCH_RETRY_MAX_BACKOFF",
+        env = "KRABKA_DEMO_SCHEMA_FETCH_RETRY_MAX_BACKOFF",
         value_parser = parse::positive_time
     )]
     schema_fetch_retry_max_backoff: Option<Time>,
-    #[arg(long, env = "CRABKA_DEMO_INPUT_TOPIC", default_value = "orders")]
+    #[arg(long, env = "KRABKA_DEMO_INPUT_TOPIC", default_value = "orders")]
     input_topic: String,
-    #[arg(long, env = "CRABKA_DEMO_OUTPUT_TOPIC", default_value = "order-counts")]
+    #[arg(long, env = "KRABKA_DEMO_OUTPUT_TOPIC", default_value = "order-counts")]
     output_topic: String,
     #[arg(
         long,
-        env = "CRABKA_DEMO_STREAMS_APPLICATION_ID",
+        env = "KRABKA_DEMO_STREAMS_APPLICATION_ID",
         default_value = "orders-analytics",
         value_parser = parse_non_empty_string
     )]
     streams_application_id: String,
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_GROUP_ID",
+        env = "KRABKA_DEMO_CONSUMER_GROUP_ID",
         default_value = "orders-processor",
         value_parser = parse_non_empty_string
     )]
     consumer_group_id: String,
     #[arg(
         long,
-        env = "CRABKA_DEMO_ORDERS_PER_SEC",
+        env = "KRABKA_DEMO_ORDERS_PER_SEC",
         default_value = "50Hz",
         value_parser = parse_nonnegative_frequency
     )]
     orders_per_sec: Frequency,
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_POLL_TIMEOUT",
+        env = "KRABKA_DEMO_CONSUMER_POLL_TIMEOUT",
         default_value = "500ms",
         value_parser = parse::positive_time
     )]
     consumer_poll_timeout: Time,
-    #[arg(long, env = "CRABKA_DEMO_VALIDATE_WORK", default_value = "150us", value_parser = parse_nonnegative_time)]
+    #[arg(long, env = "KRABKA_DEMO_VALIDATE_WORK", default_value = "150us", value_parser = parse_nonnegative_time)]
     validate_work: Time,
-    #[arg(long, env = "CRABKA_DEMO_ENRICH_WORK", default_value = "400us", value_parser = parse_nonnegative_time)]
+    #[arg(long, env = "KRABKA_DEMO_ENRICH_WORK", default_value = "400us", value_parser = parse_nonnegative_time)]
     enrich_work: Time,
-    #[arg(long, env = "CRABKA_DEMO_FRAUD_CHECK_WORK", default_value = "200us", value_parser = parse_nonnegative_time)]
+    #[arg(long, env = "KRABKA_DEMO_FRAUD_CHECK_WORK", default_value = "200us", value_parser = parse_nonnegative_time)]
     fraud_check_work: Time,
-    #[arg(long, env = "CRABKA_DEMO_FULFILL_WORK", default_value = "300us", value_parser = parse_nonnegative_time)]
+    #[arg(long, env = "KRABKA_DEMO_FULFILL_WORK", default_value = "300us", value_parser = parse_nonnegative_time)]
     fulfill_work: Time,
     /// Classic Consumer best-effort leave-group timeout.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_LEAVE_GROUP_TIMEOUT",
+        env = "KRABKA_DEMO_CONSUMER_LEAVE_GROUP_TIMEOUT",
         value_parser = parse::positive_time
     )]
     consumer_leave_group_timeout: Option<Time>,
     /// Classic Consumer subscribed-topic metadata refresh interval.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL",
+        env = "KRABKA_DEMO_CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL",
         value_parser = parse::positive_time
     )]
     consumer_subscription_metadata_refresh_interval: Option<Time>,
     /// Timeout for each classic Consumer startup attempt.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_STARTUP_ATTEMPT_TIMEOUT",
+        env = "KRABKA_DEMO_CONSUMER_STARTUP_ATTEMPT_TIMEOUT",
         value_parser = parse::positive_time
     )]
     consumer_startup_attempt_timeout: Option<Time>,
     /// Wall-clock deadline for classic Consumer startup.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_STARTUP_DEADLINE",
+        env = "KRABKA_DEMO_CONSUMER_STARTUP_DEADLINE",
         value_parser = parse::positive_time
     )]
     consumer_startup_deadline: Option<Time>,
     /// Initial classic Consumer startup retry backoff.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_STARTUP_INITIAL_BACKOFF",
+        env = "KRABKA_DEMO_CONSUMER_STARTUP_INITIAL_BACKOFF",
         value_parser = parse::positive_time
     )]
     consumer_startup_initial_backoff: Option<Time>,
     /// Maximum classic Consumer startup retry backoff.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_STARTUP_MAX_BACKOFF",
+        env = "KRABKA_DEMO_CONSUMER_STARTUP_MAX_BACKOFF",
         value_parser = parse::positive_time
     )]
     consumer_startup_max_backoff: Option<Time>,
     /// Timeout for classic Consumer coordinator retry loops.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_COORDINATOR_RETRY_TIMEOUT",
+        env = "KRABKA_DEMO_CONSUMER_COORDINATOR_RETRY_TIMEOUT",
         value_parser = parse::positive_time
     )]
     consumer_coordinator_retry_timeout: Option<Time>,
     /// Initial classic Consumer coordinator retry backoff.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_COORDINATOR_INITIAL_BACKOFF",
+        env = "KRABKA_DEMO_CONSUMER_COORDINATOR_INITIAL_BACKOFF",
         value_parser = parse::positive_time
     )]
     consumer_coordinator_initial_backoff: Option<Time>,
     /// Maximum classic Consumer coordinator retry backoff.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_COORDINATOR_MAX_BACKOFF",
+        env = "KRABKA_DEMO_CONSUMER_COORDINATOR_MAX_BACKOFF",
         value_parser = parse::positive_time
     )]
     consumer_coordinator_max_backoff: Option<Time>,
     /// Minimum bytes requested by the classic Consumer fetcher.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_FETCH_MIN",
+        env = "KRABKA_DEMO_CONSUMER_FETCH_MIN",
         value_parser = parse::positive_byte_size
     )]
     consumer_fetch_min: Option<ByteSize>,
     /// Total response-byte budget for one classic Consumer fetch.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_FETCH_MAX",
+        env = "KRABKA_DEMO_CONSUMER_FETCH_MAX",
         value_parser = parse::positive_byte_size
     )]
     consumer_fetch_max: Option<ByteSize>,
     /// Per-partition response-byte budget for one classic Consumer fetch.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_FETCH_PARTITION_MAX",
+        env = "KRABKA_DEMO_CONSUMER_FETCH_PARTITION_MAX",
         value_parser = parse::positive_byte_size
     )]
     consumer_fetch_partition_max: Option<ByteSize>,
     /// Classic Consumer group session timeout.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_SESSION_TIMEOUT",
+        env = "KRABKA_DEMO_CONSUMER_SESSION_TIMEOUT",
         value_parser = parse::positive_time
     )]
     consumer_session_timeout: Option<Time>,
     /// Classic Consumer group rebalance timeout.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_REBALANCE_TIMEOUT",
+        env = "KRABKA_DEMO_CONSUMER_REBALANCE_TIMEOUT",
         value_parser = parse::positive_time
     )]
     consumer_rebalance_timeout: Option<Time>,
     /// Classic Consumer group heartbeat interval.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_HEARTBEAT_INTERVAL",
+        env = "KRABKA_DEMO_CONSUMER_HEARTBEAT_INTERVAL",
         value_parser = parse::positive_time
     )]
     consumer_heartbeat_interval: Option<Time>,
     /// Classic Consumer request and connection timeout.
     #[arg(
         long,
-        env = "CRABKA_DEMO_CONSUMER_REQUEST_TIMEOUT",
+        env = "KRABKA_DEMO_CONSUMER_REQUEST_TIMEOUT",
         value_parser = parse::positive_time
     )]
     consumer_request_timeout: Option<Time>,
     /// Offset-reset behavior when the classic Consumer has no valid offset.
-    #[arg(long, env = "CRABKA_DEMO_CONSUMER_AUTO_OFFSET_RESET")]
+    #[arg(long, env = "KRABKA_DEMO_CONSUMER_AUTO_OFFSET_RESET")]
     consumer_auto_offset_reset: Option<AutoOffsetReset>,
     /// Transaction visibility for classic Consumer fetches.
-    #[arg(long, env = "CRABKA_DEMO_CONSUMER_ISOLATION_LEVEL")]
+    #[arg(long, env = "KRABKA_DEMO_CONSUMER_ISOLATION_LEVEL")]
     consumer_isolation_level: Option<IsolationLevel>,
     /// Partition assignment strategy for the classic Consumer group.
-    #[arg(long, env = "CRABKA_DEMO_CONSUMER_ASSIGNOR")]
+    #[arg(long, env = "KRABKA_DEMO_CONSUMER_ASSIGNOR")]
     consumer_assignor: Option<Assignor>,
     /// Kafka Streams broker DNS timeout.
     #[arg(
         long,
-        env = "CRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT",
+        env = "KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT",
         value_parser = parse::positive_time
     )]
     streams_broker_dns_timeout: Option<Time>,
     /// Client Streams processing poll interval.
     #[arg(
         long,
-        env = "CRABKA_DEMO_STREAMS_POLL_INTERVAL",
+        env = "KRABKA_DEMO_STREAMS_POLL_INTERVAL",
         value_parser = parse::positive_time
     )]
     streams_poll_interval: Option<Time>,
     /// Client Streams commit interval.
     #[arg(
         long,
-        env = "CRABKA_DEMO_STREAMS_COMMIT_INTERVAL",
+        env = "KRABKA_DEMO_STREAMS_COMMIT_INTERVAL",
         value_parser = parse::positive_time
     )]
     streams_commit_interval: Option<Time>,
     /// Client Streams rebalance timeout.
     #[arg(
         long,
-        env = "CRABKA_DEMO_STREAMS_REBALANCE_TIMEOUT",
+        env = "KRABKA_DEMO_STREAMS_REBALANCE_TIMEOUT",
         value_parser = parse::positive_time
     )]
     streams_rebalance_timeout: Option<Time>,
     /// Client Streams final leave-heartbeat timeout.
     #[arg(
         long,
-        env = "CRABKA_DEMO_STREAMS_LEAVE_HEARTBEAT_TIMEOUT",
+        env = "KRABKA_DEMO_STREAMS_LEAVE_HEARTBEAT_TIMEOUT",
         value_parser = parse::positive_time
     )]
     streams_leave_heartbeat_timeout: Option<Time>,
     /// Client Streams initial join retry backoff.
     #[arg(
         long,
-        env = "CRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF",
+        env = "KRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF",
         value_parser = parse::positive_time
     )]
     streams_join_retry_backoff: Option<Time>,
     /// Capacity shared by the Client Streams interactive-query request queues.
-    #[arg(long, env = "CRABKA_DEMO_STREAMS_INTERACTIVE_QUERY_QUEUE_CAPACITY")]
+    #[arg(long, env = "KRABKA_DEMO_STREAMS_INTERACTIVE_QUERY_QUEUE_CAPACITY")]
     streams_interactive_query_queue_capacity: Option<NonZeroUsize>,
     /// Client Streams state-store record-cache budget. Zero disables it.
     #[arg(
         long,
-        env = "CRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX",
+        env = "KRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX",
         value_parser = parse::non_negative_byte_size
     )]
     streams_state_store_cache_max: Option<ByteSize>,
     /// Minimum bytes requested by the Streams fetcher.
     #[arg(
         long,
-        env = "CRABKA_DEMO_STREAMS_FETCH_MIN",
+        env = "KRABKA_DEMO_STREAMS_FETCH_MIN",
         value_parser = parse_fetch_min
     )]
     streams_fetch_min: Option<ByteSize>,
@@ -837,8 +837,8 @@ async fn main() -> Result<(), BoxError> {
         effective_streams_interactive_query_queue_capacity(&cli)?;
     let streams_state_store_cache_max_bytes = effective_streams_state_store_cache_max_bytes(&cli)?;
 
-    let telemetry = crabka_telemetry::init(
-        crabka_telemetry::OtlpConfig::from_env(
+    let telemetry = krabka_telemetry::init(
+        krabka_telemetry::OtlpConfig::from_env(
             |k| std::env::var(k).ok(),
             "demo-app",
             env!("CARGO_PKG_VERSION"),
@@ -849,9 +849,9 @@ async fn main() -> Result<(), BoxError> {
         "observability-demo-app",
     )?;
     // Business metrics on the shared admin port (:9404) so Alloy scrapes them
-    // alongside pprof (crabka_demo_* families).
+    // alongside pprof (krabka_demo_* families).
     let metrics = DemoMetrics::new();
-    crabka_telemetry::profiling::serve_admin_from_env_with_config(
+    krabka_telemetry::profiling::serve_admin_from_env_with_config(
         "0.0.0.0:9404",
         metrics_router(metrics.registry.clone()),
         cli.profiling.clone(),
@@ -961,7 +961,7 @@ async fn run_produce(
     );
 
     if cli.orders_per_sec == Frequency::ZERO {
-        tracing::warn!("CRABKA_DEMO_ORDERS_PER_SEC=0 — producer paused");
+        tracing::warn!("KRABKA_DEMO_ORDERS_PER_SEC=0 — producer paused");
         futures_idle().await;
         return Ok(());
     }
@@ -1006,7 +1006,7 @@ async fn run_produce(
             // the record headers so the consumer can continue this trace, plus a
             // couple of business headers to show custom Kafka headers round-trip
             // through the broker verbatim.
-            let mut headers: Vec<Header> = crabka_telemetry::propagation::current_trace_headers()
+            let mut headers: Vec<Header> = krabka_telemetry::propagation::current_trace_headers()
                 .into_iter()
                 .map(|(k, v)| Header {
                     key: k,
@@ -1068,7 +1068,7 @@ async fn run_stream(
     client_frame_max: ClientFrameMax,
     streams_fetch_min: FetchMinBytes,
 ) -> Result<(), BoxError> {
-    let app = crabka_client_streams::StreamsApp::builder()
+    let app = krabka_client_streams::StreamsApp::builder()
         .bootstrap(cli.bootstrap.clone())
         .application_id(cli.streams_application_id.clone())
         .schema_registry(cli.registry.clone())
@@ -1190,7 +1190,7 @@ async fn process_order_record(
         demo.order.outcome = tracing::field::Empty,
     );
     // Continue the producer's trace when the record carries one.
-    crabka_telemetry::propagation::set_remote_parent(
+    krabka_telemetry::propagation::set_remote_parent(
         &span,
         record
             .headers
@@ -1296,10 +1296,10 @@ mod tests {
             .expect("default CLI");
         assert2::assert!(defaults.orders_per_sec == per_sec(50));
         assert2::assert!(defaults.consumer_poll_timeout == millis(500));
-        assert2::assert!(defaults.validate_work == crabka_units::micros(150));
-        assert2::assert!(defaults.enrich_work == crabka_units::micros(400));
-        assert2::assert!(defaults.fraud_check_work == crabka_units::micros(200));
-        assert2::assert!(defaults.fulfill_work == crabka_units::micros(300));
+        assert2::assert!(defaults.validate_work == krabka_units::micros(150));
+        assert2::assert!(defaults.enrich_work == krabka_units::micros(400));
+        assert2::assert!(defaults.fraud_check_work == krabka_units::micros(200));
+        assert2::assert!(defaults.fulfill_work == krabka_units::micros(300));
 
         let custom = Cli::try_parse_from([
             "observability-demo-app",
@@ -1547,7 +1547,7 @@ mod tests {
     #[test]
     fn streams_broker_dns_timeout_uses_default_and_cli_override() {
         let defaults = Cli {
-            profiling: crabka_telemetry::profiling::ProfilingConfig::default(),
+            profiling: krabka_telemetry::profiling::ProfilingConfig::default(),
             role: Role::Stream,
             bootstrap: "127.0.0.1:9092".to_owned(),
             client_dispatch_queue_capacity: DEFAULT_CONNECTION_DISPATCH_QUEUE_CAPACITY,
@@ -1561,10 +1561,10 @@ mod tests {
             consumer_group_id: "orders-processor".to_owned(),
             orders_per_sec: per_sec(50),
             consumer_poll_timeout: millis(500),
-            validate_work: crabka_units::micros(150),
-            enrich_work: crabka_units::micros(400),
-            fraud_check_work: crabka_units::micros(200),
-            fulfill_work: crabka_units::micros(300),
+            validate_work: krabka_units::micros(150),
+            enrich_work: krabka_units::micros(400),
+            fraud_check_work: krabka_units::micros(200),
+            fulfill_work: krabka_units::micros(300),
             consumer_leave_group_timeout: None,
             consumer_subscription_metadata_refresh_interval: None,
             consumer_startup_attempt_timeout: None,
@@ -1596,11 +1596,11 @@ mod tests {
         };
         assert_eq!(
             effective_streams_broker_dns_timeout(&defaults).expect("typed default"),
-            crabka_client_streams::ClientDnsTimeout::default()
+            krabka_client_streams::ClientDnsTimeout::default()
         );
 
         let overridden = Cli {
-            profiling: crabka_telemetry::profiling::ProfilingConfig::default(),
+            profiling: krabka_telemetry::profiling::ProfilingConfig::default(),
             streams_broker_dns_timeout: Some(millis(37)),
             ..defaults
         };
@@ -1641,7 +1641,7 @@ mod tests {
     #[test]
     fn streams_runtime_cadence_uses_defaults_and_independent_overrides() {
         let defaults = Cli {
-            profiling: crabka_telemetry::profiling::ProfilingConfig::default(),
+            profiling: krabka_telemetry::profiling::ProfilingConfig::default(),
             role: Role::Stream,
             bootstrap: "127.0.0.1:9092".to_owned(),
             client_dispatch_queue_capacity: DEFAULT_CONNECTION_DISPATCH_QUEUE_CAPACITY,
@@ -1655,10 +1655,10 @@ mod tests {
             consumer_group_id: "orders-processor".to_owned(),
             orders_per_sec: per_sec(50),
             consumer_poll_timeout: millis(500),
-            validate_work: crabka_units::micros(150),
-            enrich_work: crabka_units::micros(400),
-            fraud_check_work: crabka_units::micros(200),
-            fulfill_work: crabka_units::micros(300),
+            validate_work: krabka_units::micros(150),
+            enrich_work: krabka_units::micros(400),
+            fraud_check_work: krabka_units::micros(200),
+            fulfill_work: krabka_units::micros(300),
             consumer_leave_group_timeout: None,
             consumer_subscription_metadata_refresh_interval: None,
             consumer_startup_attempt_timeout: None,
@@ -1689,14 +1689,14 @@ mod tests {
             streams_fetch_min: None,
         };
         let (poll, commit) = effective_streams_runtime_cadence(&defaults).expect("typed defaults");
-        assert_eq!(poll, crabka_client_streams::StreamsPollInterval::default());
+        assert_eq!(poll, krabka_client_streams::StreamsPollInterval::default());
         assert_eq!(
             commit,
-            crabka_client_streams::StreamsCommitInterval::default()
+            krabka_client_streams::StreamsCommitInterval::default()
         );
 
         let overridden = Cli {
-            profiling: crabka_telemetry::profiling::ProfilingConfig::default(),
+            profiling: krabka_telemetry::profiling::ProfilingConfig::default(),
             streams_poll_interval: Some(millis(37)),
             streams_commit_interval: Some(millis(41)),
             ..defaults
@@ -1744,7 +1744,7 @@ mod tests {
     #[test]
     fn streams_rebalance_timeout_uses_default_and_cli_override() {
         let defaults = Cli {
-            profiling: crabka_telemetry::profiling::ProfilingConfig::default(),
+            profiling: krabka_telemetry::profiling::ProfilingConfig::default(),
             role: Role::Stream,
             bootstrap: "127.0.0.1:9092".to_owned(),
             client_dispatch_queue_capacity: DEFAULT_CONNECTION_DISPATCH_QUEUE_CAPACITY,
@@ -1758,10 +1758,10 @@ mod tests {
             consumer_group_id: "orders-processor".to_owned(),
             orders_per_sec: per_sec(50),
             consumer_poll_timeout: millis(500),
-            validate_work: crabka_units::micros(150),
-            enrich_work: crabka_units::micros(400),
-            fraud_check_work: crabka_units::micros(200),
-            fulfill_work: crabka_units::micros(300),
+            validate_work: krabka_units::micros(150),
+            enrich_work: krabka_units::micros(400),
+            fraud_check_work: krabka_units::micros(200),
+            fulfill_work: krabka_units::micros(300),
             consumer_leave_group_timeout: None,
             consumer_subscription_metadata_refresh_interval: None,
             consumer_startup_attempt_timeout: None,
@@ -1793,11 +1793,11 @@ mod tests {
         };
         assert_eq!(
             effective_streams_rebalance_timeout(&defaults).expect("typed default"),
-            crabka_client_streams::StreamsRebalanceTimeout::default()
+            krabka_client_streams::StreamsRebalanceTimeout::default()
         );
 
         let overridden = Cli {
-            profiling: crabka_telemetry::profiling::ProfilingConfig::default(),
+            profiling: krabka_telemetry::profiling::ProfilingConfig::default(),
             streams_rebalance_timeout: Some(secs(45)),
             ..defaults
         };
@@ -1850,7 +1850,7 @@ mod tests {
     #[test]
     fn streams_join_retry_backoff_uses_default_and_cli_override() {
         let defaults = Cli {
-            profiling: crabka_telemetry::profiling::ProfilingConfig::default(),
+            profiling: krabka_telemetry::profiling::ProfilingConfig::default(),
             role: Role::Stream,
             bootstrap: "127.0.0.1:9092".to_owned(),
             client_dispatch_queue_capacity: DEFAULT_CONNECTION_DISPATCH_QUEUE_CAPACITY,
@@ -1864,10 +1864,10 @@ mod tests {
             consumer_group_id: "orders-processor".to_owned(),
             orders_per_sec: per_sec(50),
             consumer_poll_timeout: millis(500),
-            validate_work: crabka_units::micros(150),
-            enrich_work: crabka_units::micros(400),
-            fraud_check_work: crabka_units::micros(200),
-            fulfill_work: crabka_units::micros(300),
+            validate_work: krabka_units::micros(150),
+            enrich_work: krabka_units::micros(400),
+            fraud_check_work: krabka_units::micros(200),
+            fulfill_work: krabka_units::micros(300),
             consumer_leave_group_timeout: None,
             consumer_subscription_metadata_refresh_interval: None,
             consumer_startup_attempt_timeout: None,
@@ -1903,7 +1903,7 @@ mod tests {
         );
 
         let overridden = Cli {
-            profiling: crabka_telemetry::profiling::ProfilingConfig::default(),
+            profiling: krabka_telemetry::profiling::ProfilingConfig::default(),
             streams_join_retry_backoff: Some(millis(37)),
             ..defaults
         };
@@ -1918,7 +1918,7 @@ mod tests {
     #[test]
     fn streams_interactive_query_queue_capacity_uses_default_and_override() {
         let defaults = Cli {
-            profiling: crabka_telemetry::profiling::ProfilingConfig::default(),
+            profiling: krabka_telemetry::profiling::ProfilingConfig::default(),
             role: Role::Stream,
             bootstrap: "127.0.0.1:9092".to_owned(),
             client_dispatch_queue_capacity: DEFAULT_CONNECTION_DISPATCH_QUEUE_CAPACITY,
@@ -1932,10 +1932,10 @@ mod tests {
             consumer_group_id: "orders-processor".to_owned(),
             orders_per_sec: per_sec(50),
             consumer_poll_timeout: millis(500),
-            validate_work: crabka_units::micros(150),
-            enrich_work: crabka_units::micros(400),
-            fraud_check_work: crabka_units::micros(200),
-            fulfill_work: crabka_units::micros(300),
+            validate_work: krabka_units::micros(150),
+            enrich_work: krabka_units::micros(400),
+            fraud_check_work: krabka_units::micros(200),
+            fulfill_work: krabka_units::micros(300),
             consumer_leave_group_timeout: None,
             consumer_subscription_metadata_refresh_interval: None,
             consumer_startup_attempt_timeout: None,
@@ -1971,7 +1971,7 @@ mod tests {
         );
 
         let overridden = Cli {
-            profiling: crabka_telemetry::profiling::ProfilingConfig::default(),
+            profiling: krabka_telemetry::profiling::ProfilingConfig::default(),
             streams_interactive_query_queue_capacity: NonZeroUsize::new(37),
             ..defaults
         };
@@ -2047,7 +2047,7 @@ mod tests {
 
     #[test]
     fn client_resource_policy_reads_environment_and_prefers_cli() {
-        const CHILD: &str = "CRABKA_TEST_DEMO_CLIENT_POLICY_ENV_CHILD";
+        const CHILD: &str = "KRABKA_TEST_DEMO_CLIENT_POLICY_ENV_CHILD";
         if std::env::var_os(CHILD).is_some() {
             let environment = Cli::try_parse_from(["observability-demo-app", "--role", "stream"])
                 .expect("environment policy");
@@ -2093,9 +2093,9 @@ mod tests {
                     "--nocapture",
                 ])
                 .env(CHILD, "1")
-                .env("CRABKA_DEMO_CLIENT_DISPATCH_QUEUE_CAPACITY", "7")
-                .env("CRABKA_DEMO_CLIENT_FRAME_MAX", "32KiB")
-                .env("CRABKA_DEMO_STREAMS_FETCH_MIN", "3B")
+                .env("KRABKA_DEMO_CLIENT_DISPATCH_QUEUE_CAPACITY", "7")
+                .env("KRABKA_DEMO_CLIENT_FRAME_MAX", "32KiB")
+                .env("KRABKA_DEMO_STREAMS_FETCH_MIN", "3B")
                 .status()
                 .expect("run isolated environment parser test");
         assert!(status.success());

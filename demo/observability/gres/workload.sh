@@ -12,13 +12,13 @@
 # — the loop just does it by hand so the demo always contains an example.
 #
 # Runs on the stock postgres image purely for its psql; every other container
-# here runs the all-in-one Crabka image, which carries no SQL client.
+# here runs the all-in-one Krabka image, which carries no SQL client.
 set -eu
 
-CONN="${CRABKA_GRES_WORKLOAD_CONNINFO:-host=gres port=5433 user=demo dbname=demo}"
-INTERVAL="${CRABKA_GRES_WORKLOAD_INTERVAL:-5}"
+CONN="${KRABKA_GRES_WORKLOAD_CONNINFO:-host=gres port=5433 user=demo dbname=demo}"
+INTERVAL="${KRABKA_GRES_WORKLOAD_INTERVAL:-5}"
 # Rows kept before the prune starts trimming the tail.
-RETAIN="${CRABKA_GRES_WORKLOAD_RETAIN:-500}"
+RETAIN="${KRABKA_GRES_WORKLOAD_RETAIN:-500}"
 
 # gres deliberately has no healthcheck (see docker-compose.yml), and an
 # accepted connection does not mean it has replayed its WAL yet. Wait on a

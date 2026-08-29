@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 rust-version.workspace = true
-description = "Instrumented orders-analytics Kafka-Streams demo app for the Crabka observability demo"
+description = "Instrumented orders-analytics Kafka-Streams demo app for the Krabka observability demo"
 
 [lints]
 workspace = true
@@ -16,17 +16,17 @@ name = "observability-demo-app"
 path = "src/main.rs"
 
 [features]
-heap-profiling = ["crabka-telemetry/heap-profiling"]
+heap-profiling = ["krabka-telemetry/heap-profiling"]
 
 [dependencies]
 assert2 = { workspace = true }
-crabka-client-core = { version = "0.4.0" }
-crabka-client-streams = { version = "0.4.0" }
-crabka-client-producer = { version = "0.4.0" }
-crabka-client-consumer = { version = "0.4.0" }
-crabka-schema-serde = { version = "0.4.0", features = ["protobuf"] }
-crabka-telemetry = { version = "0.4.0" }
-crabka-units = { workspace = true }
+krabka-client-core = { version = "0.4.0" }
+krabka-client-streams = { version = "0.4.0" }
+krabka-client-producer = { version = "0.4.0" }
+krabka-client-consumer = { version = "0.4.0" }
+krabka-schema-serde = { version = "0.4.0", features = ["protobuf"] }
+krabka-telemetry = { version = "0.4.0" }
+krabka-units = { workspace = true }
 axum = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }

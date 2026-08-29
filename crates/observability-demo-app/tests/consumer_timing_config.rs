@@ -10,7 +10,7 @@ fn demo() -> Command {
 fn environment_is_used_and_cli_wins_before_external_io() {
     let environment = demo()
         .args(["--role", "produce"])
-        .env("CRABKA_DEMO_CONSUMER_SESSION_TIMEOUT", "47s")
+        .env("KRABKA_DEMO_CONSUMER_SESSION_TIMEOUT", "47s")
         .output()
         .expect("run demo");
     assert!(!environment.status.success());
@@ -21,7 +21,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
 
     let cli = demo()
         .args(["--role", "stream", "--consumer-session-timeout", "48s"])
-        .env("CRABKA_DEMO_CONSUMER_SESSION_TIMEOUT", "47s")
+        .env("KRABKA_DEMO_CONSUMER_SESSION_TIMEOUT", "47s")
         .output()
         .expect("run demo");
     assert!(!cli.status.success());
