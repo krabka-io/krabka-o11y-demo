@@ -10,7 +10,7 @@ fn demo() -> Command {
 fn environment_is_used_and_cli_wins_before_external_io() {
     let environment = demo()
         .args(["--role", "produce"])
-        .env("CRABKA_DEMO_CONSUMER_LEAVE_GROUP_TIMEOUT", "37ms")
+        .env("KRABKA_DEMO_CONSUMER_LEAVE_GROUP_TIMEOUT", "37ms")
         .output()
         .expect("run demo");
     assert!(!environment.status.success());
@@ -21,7 +21,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
 
     let cli = demo()
         .args(["--role", "stream", "--consumer-leave-group-timeout", "41ms"])
-        .env("CRABKA_DEMO_CONSUMER_LEAVE_GROUP_TIMEOUT", "37ms")
+        .env("KRABKA_DEMO_CONSUMER_LEAVE_GROUP_TIMEOUT", "37ms")
         .output()
         .expect("run demo");
     assert!(!cli.status.success());
@@ -35,7 +35,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
 fn zero_fails_early_and_help_lists_the_flag_once() {
     let zero = demo()
         .args(["--role", "consume"])
-        .env("CRABKA_DEMO_CONSUMER_LEAVE_GROUP_TIMEOUT", "0ms")
+        .env("KRABKA_DEMO_CONSUMER_LEAVE_GROUP_TIMEOUT", "0ms")
         .output()
         .expect("run demo");
     assert!(!zero.status.success());

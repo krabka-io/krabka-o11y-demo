@@ -11,7 +11,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
     let environment = demo()
         .args(["--role", "produce"])
         .env(
-            "CRABKA_DEMO_CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL",
+            "KRABKA_DEMO_CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL",
             "37ms",
         )
         .output()
@@ -29,7 +29,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
             "41ms",
         ])
         .env(
-            "CRABKA_DEMO_CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL",
+            "KRABKA_DEMO_CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL",
             "37ms",
         )
         .output()
@@ -45,7 +45,7 @@ fn zero_fails_early_and_help_lists_the_flag_once() {
     let zero = demo()
         .args(["--role", "consume"])
         .env(
-            "CRABKA_DEMO_CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL",
+            "KRABKA_DEMO_CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL",
             "0ms",
         )
         .output()

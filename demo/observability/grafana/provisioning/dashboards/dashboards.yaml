@@ -1,9 +1,9 @@
 apiVersion: 1
 providers:
-  - name: crabka
+  - name: krabka
     orgId: 1
-    folder: Crabka
-    folderUid: crabka
+    folder: Krabka
+    folderUid: krabka
     type: file
     disableDeletion: false
     allowUiUpdates: true

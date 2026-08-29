@@ -4,7 +4,7 @@ set -eu
 # One bucket per signal (no URL path prefix -> avoids object-store prefix doubling).
 endpoint="${AWS_ENDPOINT_URL:-http://rustfs:9000}"
 
-for bucket in crabka-metrics crabka-traces crabka-logs crabka-profiles; do
+for bucket in krabka-metrics krabka-traces krabka-logs krabka-profiles; do
   if aws --endpoint-url "$endpoint" s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
     continue
   fi
@@ -17,7 +17,7 @@ done
 # overwrite parts even though S3 exposes only the latest object. Remove the
 # obsolete logical keys when reusing an old volume so new services do not read
 # them. Recreate the compose volumes to reclaim any stale backend parts.
-obsolete_logs_manifest_bucket="crabka-logs"
+obsolete_logs_manifest_bucket="krabka-logs"
 obsolete_logs_manifest_key="logs/tenant=demo/index/logs/manifest.json"
 obsolete_logs_shard_catalog_key="logs/tenant=demo/index/logs/shards/manifest.json"
 

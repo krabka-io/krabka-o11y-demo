@@ -3,9 +3,9 @@ use std::process::Command;
 fn demo() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_observability-demo-app"));
     command
-        .env_remove("CRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT")
-        .env_remove("CRABKA_DEMO_STREAMS_POLL_INTERVAL")
-        .env_remove("CRABKA_DEMO_STREAMS_COMMIT_INTERVAL");
+        .env_remove("KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT")
+        .env_remove("KRABKA_DEMO_STREAMS_POLL_INTERVAL")
+        .env_remove("KRABKA_DEMO_STREAMS_COMMIT_INTERVAL");
     command
 }
 
@@ -13,7 +13,7 @@ fn demo() -> Command {
 fn environment_is_used_and_cli_wins_before_external_io() {
     let environment = demo()
         .args(["--role", "produce"])
-        .env("CRABKA_DEMO_STREAMS_POLL_INTERVAL", "37ms")
+        .env("KRABKA_DEMO_STREAMS_POLL_INTERVAL", "37ms")
         .output()
         .expect("run demo");
     assert!(!environment.status.success());
@@ -24,7 +24,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
 
     let cli = demo()
         .args(["--role", "produce", "--streams-poll-interval", "41ms"])
-        .env("CRABKA_DEMO_STREAMS_POLL_INTERVAL", "37ms")
+        .env("KRABKA_DEMO_STREAMS_POLL_INTERVAL", "37ms")
         .output()
         .expect("run demo");
     assert!(!cli.status.success());
@@ -35,7 +35,7 @@ fn environment_is_used_and_cli_wins_before_external_io() {
 
     let commit = demo()
         .args(["--role", "consume"])
-        .env("CRABKA_DEMO_STREAMS_COMMIT_INTERVAL", "43ms")
+        .env("KRABKA_DEMO_STREAMS_COMMIT_INTERVAL", "43ms")
         .output()
         .expect("run demo");
     assert!(!commit.status.success());
@@ -50,11 +50,11 @@ fn zero_values_are_rejected_and_help_lists_each_flag_once() {
     for (flag, environment) in [
         (
             "--streams-poll-interval",
-            "CRABKA_DEMO_STREAMS_POLL_INTERVAL",
+            "KRABKA_DEMO_STREAMS_POLL_INTERVAL",
         ),
         (
             "--streams-commit-interval",
-            "CRABKA_DEMO_STREAMS_COMMIT_INTERVAL",
+            "KRABKA_DEMO_STREAMS_COMMIT_INTERVAL",
         ),
     ] {
         let zero = demo()

@@ -4,8 +4,8 @@
 //! shape, and the pure business rules that the traced consumer applies. The
 //! real proto, registry, and broker run lives in `main.rs`.
 
-use crabka_client_streams::{DefaultSerde, SchemaSerde};
-use crabka_schema_serde::format::protobuf::ProtobufSerde;
+use krabka_client_streams::{DefaultSerde, SchemaSerde};
+use krabka_schema_serde::format::protobuf::ProtobufSerde;
 
 pub mod metrics;
 
@@ -107,7 +107,7 @@ pub fn classify_outcome(order: &Order) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use crabka_client_streams::{
+    use krabka_client_streams::{
         Consumed, I64Serde, StringSerde, TopologyTestDriver, dsl::StreamsBuilder,
     };
 
