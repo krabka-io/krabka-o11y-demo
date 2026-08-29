@@ -18,7 +18,7 @@ milestones are sequential: a milestone needs the one before it.
 
 ### [M1 · Close the gates](https://github.com/krabka-io/krabka-o11y-demo/milestone/2)
 
-Today it does not. `grep -rn cargo .github/workflows/` finds no Cargo invocation, although `README.md` and `CLAUDE.md` both say Cargo is gated. `clippy::pedantic` is enforced nowhere. `cargo deny` is never run. `sync-siblings.yml` exits 1 for one sibling on every scheduled run and never sees a fifth. Renovate automerges compose and lockfile changes into checks that never open those files.
+Today it does not. `.github/workflows/ci.yml` invokes no Cargo command; the only one in the tree is `cargo generate-lockfile` in `sync-siblings.yml`. `README.md` and `CLAUDE.md` both say Cargo is gated. `clippy::pedantic` is enforced nowhere. `cargo deny` is never run. `sync-siblings.yml` exits 1 for one sibling on every scheduled run and never sees a fifth. Renovate automerges compose and lockfile changes into checks that do read those files but cannot see what the bump changed.
 
 This milestone builds the gates before anything else changes, so later work lands on a floor that catches drift. It also lands the two test rewrites that every later change depends on: the assert2 conversion, and the parsing rewrite of the 899-line compose and dashboard suite whose whitespace-exact needles would otherwise break on every stack edit. The accuracy sweep and the contributor scaffolding land here too, so a reader arriving at a repaired repository is not misled by the documents.
 
@@ -99,7 +99,7 @@ CI in this repository is Bazel-only. `.github/workflows/ci.yml` runs `aspect for
 
 `area:testing` · lands mostly in M2 · Make the pipeline tell the truth
 
-Coverage in `crates/observability-demo-app` is lopsided. `src/lib.rs` and `src/metrics.rs` have careful, mutation-aware unit tests. Every interesting behaviour of the demo sits in `src/main.rs`, which `.cargo/mutants.toml` excludes and which no unit test can reach. The 15 suites under `tests/` are CLI-rejection tests written against the std assertion macros, each with its own copy of a `demo()` helper. The sixteenth validates a 29-service stack by whitespace-exact substring searches over raw YAML and JSON.
+Coverage in `crates/observability-demo-app` is lopsided. `src/lib.rs` and `src/metrics.rs` have careful, mutation-aware unit tests. Every interesting behaviour of the demo sits in `src/main.rs`, which `.cargo/mutants.toml` excludes and which no unit test can reach. Fourteen of the 15 suites under `tests/` are CLI-rejection tests written against the std assertion macros, each with its own copy of a `demo()` helper. The fifteenth, `observability_demo_config.rs`, validates a 29-service stack by whitespace-exact substring searches over raw YAML and JSON.
 
 | Issue | Milestone | Size |
 | :--- | :--- | :--- |
