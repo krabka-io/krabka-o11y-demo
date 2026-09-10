@@ -58,7 +58,7 @@ x-broker-image: &broker-image
   restart: unless-stopped
 
 x-o11y-image: &o11y-image
-  image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:ca487a67550d11efa3d7ad00b1a65ff1ab6c4d92844665a61a1ea991be83e3e8}
+  image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:b73a73cc43b92fb6ca09514497d2eecb198466953060384eb67ef2bbd4ea7b9e}
   restart: unless-stopped
 
 x-legacy-demo-env: &legacy-demo-env
