@@ -190,6 +190,10 @@ services:
     environment:
       <<: *otlp-env
       OTEL_SERVICE_NAME: broker
+      # Broker request spans/logs feed the observability WALs, whose own Kafka
+      # traffic would otherwise recursively generate more broker telemetry.
+      RUST_LOG: "${KRABKA_RUST_LOG:-info,pprof::profiler=warn,object_store::client::retry=warn,krabka_broker::network::dispatch=warn}"
+      KRABKA_OTLP_FILTER: "${KRABKA_OTLP_FILTER:-info,krabka_broker::network::dispatch=warn}"
       KRABKA_METRICS_LISTEN_ADDR: 0.0.0.0:9404
     ports: ["9092:9092", "9404:9404"]
     volumes: ["broker-data:/data"]

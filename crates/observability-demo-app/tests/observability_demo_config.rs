@@ -158,6 +158,15 @@ fn docker_log_tailing_is_scoped_to_the_demo_compose_project() {
     ] {
         assert2::assert!(relabel.contains(needle));
     }
+
+    let compose = docker_compose();
+    let broker = compose_service_block(&compose, "broker");
+    assert2::assert!(broker.contains(
+        "RUST_LOG: \"${KRABKA_RUST_LOG:-info,pprof::profiler=warn,object_store::client::retry=warn,krabka_broker::network::dispatch=warn}\""
+    ));
+    assert2::assert!(broker.contains(
+        "KRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info,krabka_broker::network::dispatch=warn}\""
+    ));
 }
 
 #[test]
@@ -190,8 +199,10 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
     let smoke = observability_script("smoke.sh");
     assert2::assert!(smoke.contains("profiles gres demo-produce"));
     assert2::assert!(smoke.contains("resource.service.name = \"gres\""));
-    assert2::assert!(smoke.contains("name = \"produce_order\""));
-    assert2::assert!(smoke.contains("name = \"process_order\""));
+    assert2::assert!(smoke.contains("name = \"orders publish\""));
+    assert2::assert!(smoke.contains("name = \"orders process\""));
+    assert2::assert!(smoke.contains("--data-urlencode 'start=0'"));
+    assert2::assert!(smoke.contains("--data-urlencode \"end=$(date +%s)\""));
     assert2::assert!(smoke.contains("grep -Eq '(krabka|crabka)_demo_'"));
     assert2::assert!(smoke.contains("unknown smoke target: $target"));
     assert2::assert!(smoke.contains("*) return 1 ;;"));

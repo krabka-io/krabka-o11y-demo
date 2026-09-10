@@ -14,10 +14,10 @@ check() {
   case "$1" in
     metrics) curl -fsS -H 'X-Scope-OrgID: demo' 'http://localhost:9090/api/v1/query?query=krabka_broker_api_requests_total' | jq -e '.status == "success" and (.data.result | length > 0)' >/dev/null ;;
     logs) curl -fsS -H 'X-Scope-OrgID: demo' 'http://localhost:3100/loki/api/v1/labels' | jq -e '.status == "success" and (.data | length > 0)' >/dev/null ;;
-    traces) curl -fsS -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' --data-urlencode 'q={ resource.service.name != "" }' | jq -e '.traces | length > 0' >/dev/null ;;
-    cross-signal) curl -fsS -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' --data-urlencode 'q={ resource.service.name = "demo-produce" && name = "produce_order" } && { resource.service.name = "demo-consume" && name = "process_order" }' | jq -e '.traces | length > 0' >/dev/null ;;
+    traces) curl -fsS -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' --data-urlencode 'start=0' --data-urlencode "end=$(date +%s)" --data-urlencode 'q={ resource.service.name != "" }' | jq -e '.traces | length > 0' >/dev/null ;;
+    cross-signal) curl -fsS -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' --data-urlencode 'start=0' --data-urlencode "end=$(date +%s)" --data-urlencode 'q={ resource.service.name = "demo-produce" && name = "orders publish" } && { resource.service.name = "demo-consume" && name = "orders process" }' | jq -e '.traces | length > 0' >/dev/null ;;
     profiles) curl -fsS -H 'X-Scope-OrgID: demo' -H 'content-type: application/json' -d '{}' 'http://localhost:4040/querier.v1.QuerierService/ProfileTypes' | jq -e '(.profileTypes // .profile_types) | length > 0' >/dev/null ;;
-    gres) curl -fsS -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' --data-urlencode 'q={ resource.service.name = "gres" && span.db.system.name = "postgresql" }' | jq -e '.traces | length > 0' >/dev/null ;;
+    gres) curl -fsS -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' --data-urlencode 'start=0' --data-urlencode "end=$(date +%s)" --data-urlencode 'q={ resource.service.name = "gres" && span.db.system.name = "postgresql" }' | jq -e '.traces | length > 0' >/dev/null ;;
     demo-*) docker compose exec -T "$1" curl -fsS http://localhost:9404/metrics | grep -Eq '(krabka|crabka)_demo_' ;;
     *) return 1 ;;
   esac
