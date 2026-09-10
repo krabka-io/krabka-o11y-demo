@@ -409,6 +409,67 @@ fn qualification_images_are_explicit() {
         compose.contains("command: [\"krabka-o11y-bootstrap\", \"--bootstrap=broker:9092\"]"),
         "the published bootstrap should enforce the six-topic contract"
     );
+    check!(
+        compose.contains("KRABKA_DEMO_IMAGE:-ghcr.io/robot-head/crabka-demo@sha256:1fa96b3322ae0f29dec976d2764e1d94ca4b3edc854552868b9f0f4a6b8ab2db"),
+        "the legacy workload image should be immutable by default"
+    );
+    for bin_override in [
+        "KRABKA_SCHEMA_REGISTRY_BIN:-crabka-schema-registry",
+        "KRABKA_CLI_BIN:-crabka",
+        "KRABKA_GRES_BIN:-crabka-gres",
+    ] {
+        check!(
+            compose.contains(bin_override),
+            "local rebuilt images should be able to override {bin_override}"
+        );
+    }
+    check!(
+        compose.contains("CRABKA_OTLP_HEARTBEAT_INTERVAL: \"${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}\""),
+        "legacy services should preserve the heartbeat override"
+    );
+    check!(
+        compose.contains("CRABKA_OTLP_SQL_TEXT: \"${KRABKA_GRES_OTLP_SQL_TEXT:-false}\""),
+        "legacy GRES should preserve the SQL text opt-in"
+    );
+    for setting in [
+        "SCHEMA_FETCH_RETRY_INITIAL_BACKOFF",
+        "SCHEMA_FETCH_RETRY_MAX_BACKOFF",
+        "ORDERS_PER_SEC",
+        "STREAMS_BROKER_DNS_TIMEOUT",
+        "STREAMS_FETCH_MIN",
+        "STREAMS_POLL_INTERVAL",
+        "STREAMS_COMMIT_INTERVAL",
+        "STREAMS_REBALANCE_TIMEOUT",
+        "STREAMS_LEAVE_HEARTBEAT_TIMEOUT",
+        "STREAMS_JOIN_RETRY_BACKOFF",
+        "STREAMS_INTERACTIVE_QUERY_QUEUE_CAPACITY",
+        "STREAMS_STATE_STORE_CACHE_MAX",
+        "CONSUMER_LEAVE_GROUP_TIMEOUT",
+        "CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL",
+        "CONSUMER_STARTUP_ATTEMPT_TIMEOUT",
+        "CONSUMER_STARTUP_DEADLINE",
+        "CONSUMER_STARTUP_INITIAL_BACKOFF",
+        "CONSUMER_STARTUP_MAX_BACKOFF",
+        "CONSUMER_COORDINATOR_RETRY_TIMEOUT",
+        "CONSUMER_COORDINATOR_INITIAL_BACKOFF",
+        "CONSUMER_COORDINATOR_MAX_BACKOFF",
+        "CONSUMER_FETCH_MIN",
+        "CONSUMER_FETCH_MAX",
+        "CONSUMER_FETCH_PARTITION_MAX",
+        "CONSUMER_SESSION_TIMEOUT",
+        "CONSUMER_REBALANCE_TIMEOUT",
+        "CONSUMER_HEARTBEAT_INTERVAL",
+        "CONSUMER_REQUEST_TIMEOUT",
+        "CONSUMER_AUTO_OFFSET_RESET",
+        "CONSUMER_ISOLATION_LEVEL",
+        "CONSUMER_ASSIGNOR",
+    ] {
+        let alias = format!("CRABKA_DEMO_{setting}: \"${{KRABKA_DEMO_{setting}");
+        check!(
+            compose.contains(&alias),
+            "legacy workload should preserve {setting} overrides"
+        );
+    }
 }
 
 #[test]
