@@ -27,6 +27,11 @@ fn docker_compose() -> String {
         .expect("read observability compose file")
 }
 
+fn observability_script(name: &str) -> String {
+    std::fs::read_to_string(repo_root().join(format!("demo/observability/{name}")))
+        .expect("read observability script")
+}
+
 fn compose_service_block<'a>(compose: &'a str, service: &str) -> &'a str {
     let marker = format!("  {service}:");
     let start = compose.find(&marker).expect("compose service exists");
@@ -152,6 +157,70 @@ fn docker_log_tailing_is_scoped_to_the_demo_compose_project() {
         ),
     ] {
         assert2::assert!(relabel.contains(needle));
+    }
+}
+
+#[test]
+fn recovery_qualification_routes_and_seeds_logs_and_traces() {
+    let config = alloy_config();
+    assert2::assert!(config.contains("logs    = [otelcol.exporter.otlphttp.logs.input]"));
+    assert2::assert!(config.contains("endpoint = \"http://logs-distributor:3100/otlp\""));
+    assert2::assert!(config.contains("prometheus.relabel \"krabka_namespace\""));
+    assert2::assert!(config.contains("regex         = \"crabka_demo_(.*)\""));
+    assert2::assert!(config.contains("replacement   = \"krabka_demo_$1\""));
+
+    let qualification = observability_script("qualify-failover.sh");
+    for needle in [
+        "http://alloy:4318/v1/traces",
+        "http://alloy:4318/v1/logs",
+        "m20_qualification_root",
+        "m20_qualification_recovery_child",
+        "/proc/sys/kernel/random/uuid",
+        "seed-trace-id.txt",
+        "/api/traces/$qualification_trace_id",
+        "seed-trace-$phase.pb",
+        "M20 observability recovery qualification $qualification_trace_id",
+        "seed-log-$phase.json",
+        r#"query={service_name=\"m20-qualification\"}"#,
+        r#".data.result | length > 0"#,
+    ] {
+        assert2::assert!(qualification.contains(needle));
+    }
+
+    let smoke = observability_script("smoke.sh");
+    assert2::assert!(smoke.contains("profiles gres demo-produce"));
+    assert2::assert!(smoke.contains("resource.service.name = \"gres\""));
+    assert2::assert!(smoke.contains("name = \"produce_order\""));
+    assert2::assert!(smoke.contains("name = \"process_order\""));
+    assert2::assert!(smoke.contains("grep -Eq '(krabka|crabka)_demo_'"));
+    assert2::assert!(smoke.contains("unknown smoke target: $target"));
+    assert2::assert!(smoke.contains("*) return 1 ;;"));
+    let workflow = std::fs::read_to_string(repo_root().join(".github/workflows/qualify-m20.yml"))
+        .expect("read M20 qualification workflow");
+    assert2::assert!(workflow.contains(
+        "KRABKA_SMOKE_TARGETS: metrics logs traces cross-signal profiles demo-produce demo-stream demo-consume"
+    ));
+
+    let compose = docker_compose();
+    assert2::assert!(compose.contains("KRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info}\""));
+    assert2::assert!(compose.contains(
+        "KRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info,krabka_pgwire::session=debug,krabka_pgexec::statement=debug,krabka_pgexec::exec=debug,krabka_gres_ranges::route=debug,krabka_gres_substrate::wal=debug}\""
+    ));
+    assert2::assert!(compose.contains(
+        "CRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info,crabka_pgwire::session=debug,crabka_pgexec::statement=debug,crabka_pgexec::exec=debug,crabka_gres_ranges::route=debug,crabka_gres_substrate::wal=debug}\""
+    ));
+
+    let readme = observability_script("README.md");
+    assert2::assert!(readme.contains("crabka_pgexec::exec=trace"));
+    let gres_dashboard = dashboard("krabka-gres-traces.json");
+    assert2::assert!(gres_dashboard.contains("crabka_pgexec::exec=trace"));
+    for setting in [
+        "KRABKA_DEMO_IMAGE=ghcr.io/robot-head/crabka-demo:latest",
+        "KRABKA_SCHEMA_REGISTRY_BIN=krabka-schema-registry",
+        "KRABKA_CLI_BIN=krabka",
+        "KRABKA_GRES_BIN=krabka-gres",
+    ] {
+        assert2::assert!(readme.contains(setting));
     }
 }
 
@@ -388,7 +457,7 @@ fn qualification_images_are_explicit() {
     let compose = docker_compose();
 
     check!(
-        compose.contains("ghcr.io/krabka-io/krabka-broker@sha256:886fbe511a0cadacec0c352fe10b295063b3807c0df133d2fce4ea804f4fffcd"),
+        compose.contains("ghcr.io/krabka-io/krabka-broker@sha256:15851611a7d5df6e20d3f9bd85b3821ca2dd52d5ca6f4042f5a4cfe0a3a1ab89"),
         "the M20 stack should default to the qualified broker image"
     );
     check!(
@@ -409,6 +478,68 @@ fn qualification_images_are_explicit() {
         compose.contains("command: [\"krabka-o11y-bootstrap\", \"--bootstrap=broker:9092\"]"),
         "the published bootstrap should enforce the six-topic contract"
     );
+    check!(
+        compose.contains("KRABKA_DEMO_IMAGE:-ghcr.io/robot-head/crabka-demo@sha256:1fa96b3322ae0f29dec976d2764e1d94ca4b3edc854552868b9f0f4a6b8ab2db"),
+        "the legacy workload image should be immutable by default"
+    );
+    for bin_override in [
+        "KRABKA_SCHEMA_REGISTRY_BIN:-crabka-schema-registry",
+        "KRABKA_CLI_BIN:-crabka",
+        "KRABKA_GRES_BIN:-crabka-gres",
+    ] {
+        check!(
+            compose.contains(bin_override),
+            "local rebuilt images should be able to override {bin_override}"
+        );
+    }
+    check!(
+        compose
+            .contains("CRABKA_OTLP_HEARTBEAT_INTERVAL: \"${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}\""),
+        "legacy services should preserve the heartbeat override"
+    );
+    check!(
+        compose.contains("CRABKA_OTLP_SQL_TEXT: \"${KRABKA_GRES_OTLP_SQL_TEXT:-false}\""),
+        "legacy GRES should preserve the SQL text opt-in"
+    );
+    for setting in [
+        "SCHEMA_FETCH_RETRY_INITIAL_BACKOFF",
+        "SCHEMA_FETCH_RETRY_MAX_BACKOFF",
+        "ORDERS_PER_SEC",
+        "STREAMS_BROKER_DNS_TIMEOUT",
+        "STREAMS_FETCH_MIN",
+        "STREAMS_POLL_INTERVAL",
+        "STREAMS_COMMIT_INTERVAL",
+        "STREAMS_REBALANCE_TIMEOUT",
+        "STREAMS_LEAVE_HEARTBEAT_TIMEOUT",
+        "STREAMS_JOIN_RETRY_BACKOFF",
+        "STREAMS_INTERACTIVE_QUERY_QUEUE_CAPACITY",
+        "STREAMS_STATE_STORE_CACHE_MAX",
+        "CONSUMER_LEAVE_GROUP_TIMEOUT",
+        "CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL",
+        "CONSUMER_STARTUP_ATTEMPT_TIMEOUT",
+        "CONSUMER_STARTUP_DEADLINE",
+        "CONSUMER_STARTUP_INITIAL_BACKOFF",
+        "CONSUMER_STARTUP_MAX_BACKOFF",
+        "CONSUMER_COORDINATOR_RETRY_TIMEOUT",
+        "CONSUMER_COORDINATOR_INITIAL_BACKOFF",
+        "CONSUMER_COORDINATOR_MAX_BACKOFF",
+        "CONSUMER_FETCH_MIN",
+        "CONSUMER_FETCH_MAX",
+        "CONSUMER_FETCH_PARTITION_MAX",
+        "CONSUMER_SESSION_TIMEOUT",
+        "CONSUMER_REBALANCE_TIMEOUT",
+        "CONSUMER_HEARTBEAT_INTERVAL",
+        "CONSUMER_REQUEST_TIMEOUT",
+        "CONSUMER_AUTO_OFFSET_RESET",
+        "CONSUMER_ISOLATION_LEVEL",
+        "CONSUMER_ASSIGNOR",
+    ] {
+        let alias = format!("CRABKA_DEMO_{setting}: \"${{KRABKA_DEMO_{setting}");
+        check!(
+            compose.contains(&alias),
+            "legacy workload should preserve {setting} overrides"
+        );
+    }
 }
 
 #[test]

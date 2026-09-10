@@ -9,6 +9,7 @@ otelcol.receiver.otlp "in" {
 	}
 
 	output {
+		logs    = [otelcol.exporter.otlphttp.logs.input]
 		metrics = [otelcol.exporter.prometheus.otlp_metrics.input]
 		traces  = [otelcol.processor.batch.traces.input]
 	}
@@ -49,6 +50,17 @@ otelcol.exporter.otlphttp "traces" {
 	}
 }
 
+otelcol.exporter.otlphttp "logs" {
+	client {
+		endpoint = "http://logs-distributor:3100/otlp"
+		headers  = {"X-Scope-OrgID" = "demo"}
+
+		tls {
+			insecure = true
+		}
+	}
+}
+
 // ---------------- Metrics: scrape every Krabka service's :9404 /metrics ----------------
 // Every Krabka service exposes a Prometheus exporter on its admin port 9404
 // (the broker via its metrics server; the four observability services via the
@@ -77,7 +89,20 @@ prometheus.scrape "krabka" {
 		{__address__ = "demo-consume:9404", job = "demo-consume"},
 	]
 	scrape_interval = "15s"
-	forward_to      = [prometheus.remote_write.krabka.receiver]
+	forward_to      = [prometheus.relabel.krabka_namespace.receiver]
+}
+
+// Keep dashboards stable while the pinned workload image still exports the
+// pre-rename crabka_demo_* metric prefix.
+prometheus.relabel "krabka_namespace" {
+	forward_to = [prometheus.remote_write.krabka.receiver]
+
+	rule {
+		source_labels = ["__name__"]
+		regex         = "crabka_demo_(.*)"
+		target_label  = "__name__"
+		replacement   = "krabka_demo_$1"
+	}
 }
 
 // Container-level runtime metrics for both Krabka and the supporting

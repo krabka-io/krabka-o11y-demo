@@ -20,7 +20,15 @@ x-otlp-env: &otlp-env
   # converges while still leaving plenty of demo traces to view.
   KRABKA_OTLP_SAMPLE_RATIO: "0.05"
   KRABKA_OTLP_HEARTBEAT_INTERVAL: "${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}"
+  KRABKA_OTLP_FILTER: "${KRABKA_OTLP_FILTER:-info}"
   KRABKA_ADMIN_LISTEN_ADDR: 0.0.0.0:9404
+  # The workload image predates the repository's namespace rename. Keep its
+  # old environment spelling until that image is republished.
+  CRABKA_OTLP_ENDPOINT: http://alloy:4317
+  CRABKA_OTLP_SAMPLE_RATIO: "0.05"
+  CRABKA_OTLP_HEARTBEAT_INTERVAL: "${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}"
+  CRABKA_OTLP_FILTER: "${KRABKA_OTLP_FILTER:-info}"
+  CRABKA_ADMIN_LISTEN_ADDR: 0.0.0.0:9404
   # Enable jemalloc heap profiling support continuously so heap profiles include
   # long-lived allocations, but sample coarsely (~every 1 MiB) so small demo
   # services still produce useful heap profiles without tracing every
@@ -39,18 +47,54 @@ x-otlp-env: &otlp-env
 #   melange build packaging/melange/krabka-demo.yaml --source-dir . --signing-key melange.rsa --arch x86_64 --runner docker --cache-dir "$PWD/.melange-cache" --out-dir packages/
 #   apko build packaging/apko/krabka-demo.yaml ghcr.io/robot-head/crabka-demo:latest krabka-demo.tar --arch x86_64 --repository-append "$PWD/packages" --keyring-append "$PWD/melange.rsa.pub"
 #   docker load < krabka-demo.tar
-# then `docker compose up -d` (Compose uses the local image when present).
+# then follow the explicit environment override recipe in README.md before
+# `docker compose up -d`.
 x-krabka-image: &krabka-image
-  image: ghcr.io/robot-head/crabka-demo:latest
+  image: ${KRABKA_DEMO_IMAGE:-ghcr.io/robot-head/crabka-demo@sha256:1fa96b3322ae0f29dec976d2764e1d94ca4b3edc854552868b9f0f4a6b8ab2db}
   restart: unless-stopped
 
 x-broker-image: &broker-image
-  image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:886fbe511a0cadacec0c352fe10b295063b3807c0df133d2fce4ea804f4fffcd}
+  image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:15851611a7d5df6e20d3f9bd85b3821ca2dd52d5ca6f4042f5a4cfe0a3a1ab89}
   restart: unless-stopped
 
 x-o11y-image: &o11y-image
   image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:ca487a67550d11efa3d7ad00b1a65ff1ab6c4d92844665a61a1ea991be83e3e8}
   restart: unless-stopped
+
+x-legacy-demo-env: &legacy-demo-env
+  CRABKA_DEMO_BOOTSTRAP: broker:9092
+  CRABKA_DEMO_REGISTRY: http://schema-registry:8081
+  CRABKA_DEMO_SCHEMA_FETCH_RETRY_INITIAL_BACKOFF: "${KRABKA_DEMO_SCHEMA_FETCH_RETRY_INITIAL_BACKOFF:-10ms}"
+  CRABKA_DEMO_SCHEMA_FETCH_RETRY_MAX_BACKOFF: "${KRABKA_DEMO_SCHEMA_FETCH_RETRY_MAX_BACKOFF:-1s}"
+  CRABKA_DEMO_ORDERS_PER_SEC: "${KRABKA_DEMO_ORDERS_PER_SEC:-50}"
+  CRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT: "${KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT:-10s}"
+  CRABKA_DEMO_STREAMS_FETCH_MIN: "${KRABKA_DEMO_STREAMS_FETCH_MIN:-1B}"
+  CRABKA_DEMO_STREAMS_POLL_INTERVAL: "${KRABKA_DEMO_STREAMS_POLL_INTERVAL:-200ms}"
+  CRABKA_DEMO_STREAMS_COMMIT_INTERVAL: "${KRABKA_DEMO_STREAMS_COMMIT_INTERVAL:-5s}"
+  CRABKA_DEMO_STREAMS_REBALANCE_TIMEOUT: "${KRABKA_DEMO_STREAMS_REBALANCE_TIMEOUT:-30s}"
+  CRABKA_DEMO_STREAMS_LEAVE_HEARTBEAT_TIMEOUT: "${KRABKA_DEMO_STREAMS_LEAVE_HEARTBEAT_TIMEOUT:-5s}"
+  CRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF: "${KRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF:-200ms}"
+  CRABKA_DEMO_STREAMS_INTERACTIVE_QUERY_QUEUE_CAPACITY: "${KRABKA_DEMO_STREAMS_INTERACTIVE_QUERY_QUEUE_CAPACITY:-64}"
+  CRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX: "${KRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX:-10MiB}"
+  CRABKA_DEMO_CONSUMER_LEAVE_GROUP_TIMEOUT: "${KRABKA_DEMO_CONSUMER_LEAVE_GROUP_TIMEOUT:-5s}"
+  CRABKA_DEMO_CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL: "${KRABKA_DEMO_CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL:-5s}"
+  CRABKA_DEMO_CONSUMER_STARTUP_ATTEMPT_TIMEOUT: "${KRABKA_DEMO_CONSUMER_STARTUP_ATTEMPT_TIMEOUT:-90s}"
+  CRABKA_DEMO_CONSUMER_STARTUP_DEADLINE: "${KRABKA_DEMO_CONSUMER_STARTUP_DEADLINE:-5m}"
+  CRABKA_DEMO_CONSUMER_STARTUP_INITIAL_BACKOFF: "${KRABKA_DEMO_CONSUMER_STARTUP_INITIAL_BACKOFF:-500ms}"
+  CRABKA_DEMO_CONSUMER_STARTUP_MAX_BACKOFF: "${KRABKA_DEMO_CONSUMER_STARTUP_MAX_BACKOFF:-5s}"
+  CRABKA_DEMO_CONSUMER_COORDINATOR_RETRY_TIMEOUT: "${KRABKA_DEMO_CONSUMER_COORDINATOR_RETRY_TIMEOUT:-30s}"
+  CRABKA_DEMO_CONSUMER_COORDINATOR_INITIAL_BACKOFF: "${KRABKA_DEMO_CONSUMER_COORDINATOR_INITIAL_BACKOFF:-100ms}"
+  CRABKA_DEMO_CONSUMER_COORDINATOR_MAX_BACKOFF: "${KRABKA_DEMO_CONSUMER_COORDINATOR_MAX_BACKOFF:-1s}"
+  CRABKA_DEMO_CONSUMER_FETCH_MIN: "${KRABKA_DEMO_CONSUMER_FETCH_MIN:-1B}"
+  CRABKA_DEMO_CONSUMER_FETCH_MAX: "${KRABKA_DEMO_CONSUMER_FETCH_MAX:-50MiB}"
+  CRABKA_DEMO_CONSUMER_FETCH_PARTITION_MAX: "${KRABKA_DEMO_CONSUMER_FETCH_PARTITION_MAX:-1MiB}"
+  CRABKA_DEMO_CONSUMER_SESSION_TIMEOUT: "${KRABKA_DEMO_CONSUMER_SESSION_TIMEOUT:-45s}"
+  CRABKA_DEMO_CONSUMER_REBALANCE_TIMEOUT: "${KRABKA_DEMO_CONSUMER_REBALANCE_TIMEOUT:-1m}"
+  CRABKA_DEMO_CONSUMER_HEARTBEAT_INTERVAL: "${KRABKA_DEMO_CONSUMER_HEARTBEAT_INTERVAL:-3s}"
+  CRABKA_DEMO_CONSUMER_REQUEST_TIMEOUT: "${KRABKA_DEMO_CONSUMER_REQUEST_TIMEOUT:-30s}"
+  CRABKA_DEMO_CONSUMER_AUTO_OFFSET_RESET: "${KRABKA_DEMO_CONSUMER_AUTO_OFFSET_RESET:-latest}"
+  CRABKA_DEMO_CONSUMER_ISOLATION_LEVEL: "${KRABKA_DEMO_CONSUMER_ISOLATION_LEVEL:-read-uncommitted}"
+  CRABKA_DEMO_CONSUMER_ASSIGNOR: "${KRABKA_DEMO_CONSUMER_ASSIGNOR:-range}"
 
 # ---------------------------------------------------------------------------
 # Per-tier resource limits (hard caps; memswap_limit == mem_limit so a tier that
@@ -130,7 +174,7 @@ services:
     volumes: ["broker-data:/data"]
 
   broker-format:
-    image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:886fbe511a0cadacec0c352fe10b295063b3807c0df133d2fce4ea804f4fffcd}
+    image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:15851611a7d5df6e20d3f9bd85b3821ca2dd52d5ca6f4042f5a4cfe0a3a1ab89}
     <<: *setup-res
     restart: "no"
     entrypoint: ["/usr/bin/krabka-format"]
@@ -243,7 +287,7 @@ services:
         for t in orders order-counts; do /opt/kafka/bin/kafka-topics.sh --bootstrap-server broker:9092 --create --if-not-exists --topic "$$t" --partitions 1 --replication-factor 1 || exit 1; done; echo "topics ready" #magic___^_^___line
   schema-registry:
     <<: [*krabka-image, *registry-res]
-    command: ["krabka-schema-registry", "--bootstrap-servers=broker:9092", "--listen-addr=0.0.0.0:8081", "--schemas-topic-rf=1"]
+    command: ["${KRABKA_SCHEMA_REGISTRY_BIN:-crabka-schema-registry}", "--bootstrap-servers=broker:9092", "--listen-addr=0.0.0.0:8081", "--schemas-topic-rf=1"]
     environment:
       <<: *otlp-env
       OTEL_SERVICE_NAME: schema-registry
@@ -482,7 +526,7 @@ services:
     <<: [*krabka-image, *demo-res]
     command: ["observability-demo-app", "--role=produce"]
     environment:
-      <<: *otlp-env
+      <<: [*otlp-env, *legacy-demo-env]
       OTEL_SERVICE_NAME: demo-produce
       KRABKA_DEMO_BOOTSTRAP: broker:9092
       KRABKA_DEMO_REGISTRY: http://schema-registry:8081
@@ -497,7 +541,7 @@ services:
     <<: [*krabka-image, *demo-res]
     command: ["observability-demo-app", "--role=stream"]
     environment:
-      <<: *otlp-env
+      <<: [*otlp-env, *legacy-demo-env]
       OTEL_SERVICE_NAME: demo-stream
       KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT: "${KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT:-10s}"
       KRABKA_DEMO_STREAMS_FETCH_MIN: "${KRABKA_DEMO_STREAMS_FETCH_MIN:-1B}"
@@ -520,7 +564,7 @@ services:
     <<: [*krabka-image, *demo-res]
     command: ["observability-demo-app", "--role=consume"]
     environment:
-      <<: *otlp-env
+      <<: [*otlp-env, *legacy-demo-env]
       OTEL_SERVICE_NAME: demo-consume
       KRABKA_DEMO_BOOTSTRAP: broker:9092
       KRABKA_DEMO_REGISTRY: http://schema-registry:8081
@@ -566,20 +610,20 @@ services:
   # tenant's range layout and its SCRAM verifier, so it is also what sets the
   # SQL password. Idempotent: `describe` succeeds once the record exists.
   gres-setup:
-    image: ghcr.io/robot-head/crabka-demo:latest
+    image: ${KRABKA_DEMO_IMAGE:-ghcr.io/robot-head/crabka-demo@sha256:1fa96b3322ae0f29dec976d2764e1d94ca4b3edc854552868b9f0f4a6b8ab2db}
     <<: *setup-res
     restart: "no"
     entrypoint:
       - /bin/sh
       - -c
       - >
-        krabka gres describe --bootstrap broker:9092 --name demo >/dev/null 2>&1 && exit 0; printf '%s' "${KRABKA_GRES_PASSWORD:-demo}" | krabka gres create-tenant --bootstrap broker:9092 --name demo --user demo --password-stdin
+        ${KRABKA_CLI_BIN:-crabka} gres describe --bootstrap broker:9092 --name demo >/dev/null 2>&1 && exit 0; printf '%s' "${KRABKA_GRES_PASSWORD:-demo}" | ${KRABKA_CLI_BIN:-crabka} gres create-tenant --bootstrap broker:9092 --name demo --user demo --password-stdin
     depends_on:
       broker: {condition: service_healthy}
 
   gres:
     <<: [*krabka-image, *gres-res]
-    command: ["krabka-gres", "--listen=0.0.0.0:5433", "--substrate-bootstrap=broker:9092", "--tenant=demo", "--cache-dir=/data"]
+    command: ["${KRABKA_GRES_BIN:-crabka-gres}", "--listen=0.0.0.0:5433", "--substrate-bootstrap=broker:9092", "--tenant=demo", "--cache-dir=/data"]
     environment:
       <<: *otlp-env
       OTEL_SERVICE_NAME: gres
@@ -590,6 +634,13 @@ services:
       # waterfall at 5% would drop 19 of every 20 traces the demo exists to
       # show.
       KRABKA_OTLP_SAMPLE_RATIO: "1.0"
+      CRABKA_OTLP_SAMPLE_RATIO: "1.0"
+      # Both Gres binaries have a richer built-in waterfall filter than the
+      # shared service default. Preserve the matching namespace unless the
+      # operator overrides it.
+      KRABKA_OTLP_FILTER: "${KRABKA_OTLP_FILTER:-info,krabka_pgwire::session=debug,krabka_pgexec::statement=debug,krabka_pgexec::exec=debug,krabka_gres_ranges::route=debug,krabka_gres_substrate::wal=debug}"
+      CRABKA_OTLP_FILTER: "${KRABKA_OTLP_FILTER:-info,crabka_pgwire::session=debug,crabka_pgexec::statement=debug,crabka_pgexec::exec=debug,crabka_gres_ranges::route=debug,crabka_gres_substrate::wal=debug}"
+      CRABKA_OTLP_SQL_TEXT: "${KRABKA_GRES_OTLP_SQL_TEXT:-false}"
       # Verbatim SQL (`db.query.text`) on statement spans. OFF by default: the
       # query text carries literals, so it is the one setting here that can
       # export personal data or secrets. Spans still carry db.query.summary

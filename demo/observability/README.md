@@ -122,6 +122,10 @@ apko build packaging/apko/krabka-demo.yaml \
   --keyring-append "$PWD/melange.rsa.pub"
 
 docker load < krabka-demo.tar
+export KRABKA_DEMO_IMAGE=ghcr.io/robot-head/crabka-demo:latest
+export KRABKA_SCHEMA_REGISTRY_BIN=krabka-schema-registry
+export KRABKA_CLI_BIN=krabka
+export KRABKA_GRES_BIN=krabka-gres
 cd demo/observability && docker compose up -d
 ```
 
@@ -193,7 +197,8 @@ commits are slow.
 
 `pg.blocking_worker`, `pg.scan`, `pg.read_context` and the contended-row-lock
 spans are at the `TRACE` level and are off by default. To see them, add
-`krabka_pgexec::exec=trace` to `KRABKA_OTLP_FILTER` on the `gres` service.
+`crabka_pgexec::exec=trace` to `KRABKA_OTLP_FILTER` while the pinned legacy
+image is the default (`krabka_pgexec::exec=trace` for a post-rename image).
 
 **Naming note.** The statement spans set `otel.name` to the query summary, so
 they export as `SELECT demo_orders` and not as `db.statement`. Select them by
@@ -253,6 +258,10 @@ feedback loop diverges at 1.0. Gres is a database, not a trace backend, and its
 spans never re-enter their own ingest path. Gres therefore overrides the anchor
 and samples at 1.0. A 5% sample of gres would discard 19 of every 20 query
 waterfalls.
+
+Set `KRABKA_OTLP_FILTER` before starting Compose to override the exported span
+filter. The anchor forwards the same value as `CRABKA_OTLP_FILTER` for the
+pinned pre-rename demo image.
 
 ### Single node only
 
