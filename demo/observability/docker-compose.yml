@@ -51,7 +51,7 @@ x-krabka-image: &krabka-image
   restart: unless-stopped
 
 x-broker-image: &broker-image
-  image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:886fbe511a0cadacec0c352fe10b295063b3807c0df133d2fce4ea804f4fffcd}
+  image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:15851611a7d5df6e20d3f9bd85b3821ca2dd52d5ca6f4042f5a4cfe0a3a1ab89}
   restart: unless-stopped
 
 x-o11y-image: &o11y-image
@@ -140,7 +140,7 @@ services:
     volumes: ["broker-data:/data"]
 
   broker-format:
-    image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:886fbe511a0cadacec0c352fe10b295063b3807c0df133d2fce4ea804f4fffcd}
+    image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:15851611a7d5df6e20d3f9bd85b3821ca2dd52d5ca6f4042f5a4cfe0a3a1ab89}
     <<: *setup-res
     restart: "no"
     entrypoint: ["/usr/bin/krabka-format"]

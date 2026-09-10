@@ -388,7 +388,7 @@ fn qualification_images_are_explicit() {
     let compose = docker_compose();
 
     check!(
-        compose.contains("ghcr.io/krabka-io/krabka-broker@sha256:886fbe511a0cadacec0c352fe10b295063b3807c0df133d2fce4ea804f4fffcd"),
+        compose.contains("ghcr.io/krabka-io/krabka-broker@sha256:15851611a7d5df6e20d3f9bd85b3821ca2dd52d5ca6f4042f5a4cfe0a3a1ab89"),
         "the M20 stack should default to the qualified broker image"
     );
     check!(
