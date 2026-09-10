@@ -424,7 +424,8 @@ fn qualification_images_are_explicit() {
         );
     }
     check!(
-        compose.contains("CRABKA_OTLP_HEARTBEAT_INTERVAL: \"${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}\""),
+        compose
+            .contains("CRABKA_OTLP_HEARTBEAT_INTERVAL: \"${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}\""),
         "legacy services should preserve the heartbeat override"
     );
     check!(
