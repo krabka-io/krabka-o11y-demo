@@ -179,9 +179,9 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
         "seed-trace-id.txt",
         "/api/traces/$qualification_trace_id",
         "seed-trace-$phase.pb",
-        "M20 observability recovery qualification",
+        "M20 observability recovery qualification $qualification_trace_id",
         "seed-log-$phase.json",
-        r#"query={service_name="m20-qualification"}"#,
+        r#"query={service_name=\"m20-qualification\"}"#,
         r#".data.result | length > 0"#,
     ] {
         assert2::assert!(qualification.contains(needle));
@@ -201,7 +201,9 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
 
     let compose = docker_compose();
     assert2::assert!(compose.contains("KRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info}\""));
-    assert2::assert!(compose.contains("CRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info}\""));
+    assert2::assert!(compose.contains(
+        "CRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info,crabka_pgwire::session=debug,crabka_pgexec::statement=debug,crabka_pgexec::exec=debug,crabka_gres_ranges::route=debug,crabka_gres_substrate::wal=debug}\""
+    ));
 
     let readme = observability_script("README.md");
     assert2::assert!(readme.contains("crabka_pgexec::exec=trace"));

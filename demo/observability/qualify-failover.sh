@@ -46,7 +46,7 @@ seed_qualification_signals() {
 {"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"m20-qualification-producer"}}]},"scopeSpans":[{"spans":[{"traceId":"$qualification_trace_id","spanId":"$qualification_root_span_id","name":"m20_qualification_root","kind":3,"startTimeUnixNano":"$now","endTimeUnixNano":"$end"}]}]},{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"m20-qualification-consumer"}}]},"scopeSpans":[{"spans":[{"traceId":"$qualification_trace_id","spanId":"$qualification_child_span_id","parentSpanId":"$qualification_root_span_id","name":"m20_qualification_recovery_child","kind":4,"startTimeUnixNano":"$now","endTimeUnixNano":"$end"}]}]}]}
 EOF
   cat >"$artifact_dir/seed-logs.json" <<EOF
-{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"m20-qualification"}}]},"scopeLogs":[{"logRecords":[{"timeUnixNano":"$now","severityText":"INFO","body":{"stringValue":"M20 observability recovery qualification"}}]}]}]}
+{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"m20-qualification"}}]},"scopeLogs":[{"logRecords":[{"timeUnixNano":"$now","severityText":"INFO","body":{"stringValue":"M20 observability recovery qualification $qualification_trace_id"}}]}]}]}
 EOF
   docker compose exec -T demo-produce curl -fsS -H 'content-type: application/json' \
     --data-binary @- http://alloy:4318/v1/traces <"$artifact_dir/seed-traces.json" \
@@ -63,7 +63,7 @@ capture_queries() {
   log_deadline=$(($(date +%s) + ${KRABKA_SIGNAL_TIMEOUT_SECONDS:-120}))
   while ! curl -fsS -H 'X-Scope-OrgID: demo' --get \
     'http://localhost:3100/loki/api/v1/query_range' \
-    --data-urlencode 'query={service_name="m20-qualification"} |= "M20 observability recovery qualification"' \
+    --data-urlencode "query={service_name=\"m20-qualification\"} |= \"M20 observability recovery qualification $qualification_trace_id\"" \
     >"$artifact_dir/seed-log-$phase.json" 2>/dev/null \
     || ! jq -e '.status == "success" and (.data.result | length > 0)' \
       "$artifact_dir/seed-log-$phase.json" >/dev/null; do

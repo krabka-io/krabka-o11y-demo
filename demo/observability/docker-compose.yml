@@ -635,6 +635,9 @@ services:
       # show.
       KRABKA_OTLP_SAMPLE_RATIO: "1.0"
       CRABKA_OTLP_SAMPLE_RATIO: "1.0"
+      # The legacy binary has a richer built-in Gres waterfall filter than the
+      # shared service default. Preserve it unless the operator overrides it.
+      CRABKA_OTLP_FILTER: "${KRABKA_OTLP_FILTER:-info,crabka_pgwire::session=debug,crabka_pgexec::statement=debug,crabka_pgexec::exec=debug,crabka_gres_ranges::route=debug,crabka_gres_substrate::wal=debug}"
       CRABKA_OTLP_SQL_TEXT: "${KRABKA_GRES_OTLP_SQL_TEXT:-false}"
       # Verbatim SQL (`db.query.text`) on statement spans. OFF by default: the
       # query text carries literals, so it is the one setting here that can
