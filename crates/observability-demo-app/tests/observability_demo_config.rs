@@ -193,6 +193,8 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
     assert2::assert!(smoke.contains("name = \"produce_order\""));
     assert2::assert!(smoke.contains("name = \"process_order\""));
     assert2::assert!(smoke.contains("grep -Eq '(krabka|crabka)_demo_'"));
+    assert2::assert!(smoke.contains("unknown smoke target: $target"));
+    assert2::assert!(smoke.contains("*) return 1 ;;"));
     let workflow = std::fs::read_to_string(repo_root().join(".github/workflows/qualify-m20.yml"))
         .expect("read M20 qualification workflow");
     assert2::assert!(workflow.contains(
@@ -201,6 +203,9 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
 
     let compose = docker_compose();
     assert2::assert!(compose.contains("KRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info}\""));
+    assert2::assert!(compose.contains(
+        "KRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info,krabka_pgwire::session=debug,krabka_pgexec::statement=debug,krabka_pgexec::exec=debug,krabka_gres_ranges::route=debug,krabka_gres_substrate::wal=debug}\""
+    ));
     assert2::assert!(compose.contains(
         "CRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info,crabka_pgwire::session=debug,crabka_pgexec::statement=debug,crabka_pgexec::exec=debug,crabka_gres_ranges::route=debug,crabka_gres_substrate::wal=debug}\""
     ));
