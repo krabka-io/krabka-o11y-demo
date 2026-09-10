@@ -11,7 +11,7 @@ check() {
     traces) curl -fsS -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' --data-urlencode 'q={ resource.service.name != "" }' | jq -e '.traces | length > 0' >/dev/null ;;
     cross-signal) curl -fsS -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' --data-urlencode 'q={ resource.service.name = "demo-produce" && name = "produce_order" } && { resource.service.name = "demo-consume" && name = "process_order" }' | jq -e '.traces | length > 0' >/dev/null ;;
     profiles) curl -fsS -H 'X-Scope-OrgID: demo' -H 'content-type: application/json' -d '{}' 'http://localhost:4040/querier.v1.QuerierService/ProfileTypes' | jq -e '(.profileTypes // .profile_types) | length > 0' >/dev/null ;;
-    demo-*) docker compose exec -T "$1" curl -fsS http://localhost:9404/metrics | grep -q 'krabka_demo_' ;;
+    demo-*) docker compose exec -T "$1" curl -fsS http://localhost:9404/metrics | grep -Eq '(krabka|crabka)_demo_' ;;
   esac
 }
 

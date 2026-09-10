@@ -9,6 +9,7 @@ otelcol.receiver.otlp "in" {
 	}
 
 	output {
+		logs    = [otelcol.exporter.otlphttp.logs.input]
 		metrics = [otelcol.exporter.prometheus.otlp_metrics.input]
 		traces  = [otelcol.processor.batch.traces.input]
 	}
@@ -41,6 +42,17 @@ otelcol.processor.batch "traces" {
 otelcol.exporter.otlphttp "traces" {
 	client {
 		endpoint = "http://traces-distributor:4318"
+		headers  = {"X-Scope-OrgID" = "demo"}
+
+		tls {
+			insecure = true
+		}
+	}
+}
+
+otelcol.exporter.otlphttp "logs" {
+	client {
+		endpoint = "http://logs-distributor:3100"
 		headers  = {"X-Scope-OrgID" = "demo"}
 
 		tls {

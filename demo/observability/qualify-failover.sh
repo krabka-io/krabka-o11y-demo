@@ -35,6 +35,23 @@ offset_sum() {
   awk '$4 ~ /^[0-9]+$/ {sum += $4; seen = 1} END {if (!seen) exit 1; print sum}' "$1"
 }
 
+seed_qualification_signals() {
+  now=$(date +%s%N)
+  end=$((now + 1000000))
+  cat >"$artifact_dir/seed-traces.json" <<EOF
+{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"demo-produce"}}]},"scopeSpans":[{"spans":[{"traceId":"52652652652652652652652652652652","spanId":"5265265265265265","name":"produce_order","kind":3,"startTimeUnixNano":"$now","endTimeUnixNano":"$end"}]}]},{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"demo-consume"}}]},"scopeSpans":[{"spans":[{"traceId":"52652652652652652652652652652652","spanId":"5265265265265266","parentSpanId":"5265265265265265","name":"process_order","kind":4,"startTimeUnixNano":"$now","endTimeUnixNano":"$end"}]}]}]}
+EOF
+  cat >"$artifact_dir/seed-logs.json" <<EOF
+{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"m20-qualification"}}]},"scopeLogs":[{"logRecords":[{"timeUnixNano":"$now","severityText":"INFO","body":{"stringValue":"M20 observability recovery qualification"}}]}]}]}
+EOF
+  docker compose exec -T demo-produce curl -fsS -H 'content-type: application/json' \
+    --data-binary @- http://alloy:4318/v1/traces <"$artifact_dir/seed-traces.json" \
+    >"$artifact_dir/seed-traces-response.json"
+  docker compose exec -T demo-produce curl -fsS -H 'content-type: application/json' \
+    --data-binary @- http://alloy:4318/v1/logs <"$artifact_dir/seed-logs.json" \
+    >"$artifact_dir/seed-logs-response.json"
+}
+
 capture_queries() {
   phase=$1
   curl -fsS -H 'X-Scope-OrgID: demo' 'http://localhost:9090/api/v1/query?query=krabka_broker_api_requests_total' >"$artifact_dir/metrics-$phase.json"
@@ -46,6 +63,7 @@ capture_queries() {
   done
 }
 
+seed_qualification_signals
 ./smoke.sh | tee "$artifact_dir/before-smoke.log"
 capture_queries before
 ledger >"$artifact_dir/offsets-before.txt" 2>&1

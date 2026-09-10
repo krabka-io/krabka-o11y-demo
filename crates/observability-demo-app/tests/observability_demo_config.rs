@@ -27,6 +27,11 @@ fn docker_compose() -> String {
         .expect("read observability compose file")
 }
 
+fn observability_script(name: &str) -> String {
+    std::fs::read_to_string(repo_root().join(format!("demo/observability/{name}")))
+        .expect("read observability script")
+}
+
 fn compose_service_block<'a>(compose: &'a str, service: &str) -> &'a str {
     let marker = format!("  {service}:");
     let start = compose.find(&marker).expect("compose service exists");
@@ -153,6 +158,27 @@ fn docker_log_tailing_is_scoped_to_the_demo_compose_project() {
     ] {
         assert2::assert!(relabel.contains(needle));
     }
+}
+
+#[test]
+fn recovery_qualification_routes_and_seeds_logs_and_traces() {
+    let config = alloy_config();
+    assert2::assert!(config.contains("logs    = [otelcol.exporter.otlphttp.logs.input]"));
+    assert2::assert!(config.contains("endpoint = \"http://logs-distributor:3100\""));
+
+    let qualification = observability_script("qualify-failover.sh");
+    for needle in [
+        "http://alloy:4318/v1/traces",
+        "http://alloy:4318/v1/logs",
+        "produce_order",
+        "process_order",
+        "M20 observability recovery qualification",
+    ] {
+        assert2::assert!(qualification.contains(needle));
+    }
+
+    let smoke = observability_script("smoke.sh");
+    assert2::assert!(smoke.contains("grep -Eq '(krabka|crabka)_demo_'"));
 }
 
 #[test]
