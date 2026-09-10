@@ -44,6 +44,14 @@ x-krabka-image: &krabka-image
   image: ghcr.io/robot-head/crabka-demo:latest
   restart: unless-stopped
 
+x-broker-image: &broker-image
+  image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:886fbe511a0cadacec0c352fe10b295063b3807c0df133d2fce4ea804f4fffcd}
+  restart: unless-stopped
+
+x-o11y-image: &o11y-image
+  image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:ca487a67550d11efa3d7ad00b1a65ff1ab6c4d92844665a61a1ea991be83e3e8}
+  restart: unless-stopped
+
 # ---------------------------------------------------------------------------
 # Per-tier resource limits (hard caps; memswap_limit == mem_limit so a tier that
 # exceeds its cap is OOM-killed + restarted rather than swap-thrashing). Defaults
@@ -114,16 +122,27 @@ services:
   # demo-stream (Kafka Streams group coordinator) starts successfully. If you
   # already have a broker-data volume from before this flag was added, wipe it
   # with `docker compose down -v` and restart.
-  broker-format:
-    image: ghcr.io/robot-head/crabka-demo:latest
+  broker-permissions:
+    image: mirror.gcr.io/library/busybox:1.38
     <<: *setup-res
     restart: "no"
-    entrypoint: ["sh", "-c", "test -f /data/meta.properties.json || krabka format --log-dir /data --standalone --node-id 1 --controller-listener broker:9093 --feature streams.version=1"]
+    command: ["chown", "65532:65532", "/data"]
     volumes: ["broker-data:/data"]
 
+  broker-format:
+    image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:886fbe511a0cadacec0c352fe10b295063b3807c0df133d2fce4ea804f4fffcd}
+    <<: *setup-res
+    restart: "no"
+    entrypoint: ["/usr/bin/krabka-format"]
+    command: ["--log-dir=/data", "--standalone", "--node-id=1", "--controller-listener=broker:9093", "--feature=streams.version=1", "--ignore-formatted"]
+    volumes: ["broker-data:/data"]
+    depends_on:
+      broker-permissions:
+        condition: service_completed_successfully
+
   broker:
-    <<: [*krabka-image, *broker-res]
-    command: ["krabka-broker", "--listen-addr=0.0.0.0:9092", "--advertised-listener=broker:9092", "--log-dir=/data", "--process-roles=controller,broker"]
+    <<: [*broker-image, *broker-res]
+    command: ["--listen-addr=0.0.0.0:9092", "--advertised-listener=broker:9092", "--log-dir=/data", "--process-roles=controller,broker"]
     environment:
       <<: *otlp-env
       OTEL_SERVICE_NAME: broker
@@ -134,7 +153,7 @@ services:
       broker-format:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9404/metrics"]
+      test: ["CMD", "/usr/bin/krabka-guard", "--bootstrap-server", "127.0.0.1:9092", "freeze", "list"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -201,21 +220,27 @@ services:
     entrypoint: ["/bin/sh", "/bootstrap.sh"]
     volumes: ["./rustfs/bootstrap.sh:/bootstrap.sh:ro"]
 
-  # One-shot: pre-create the WAL topics (the broker does not auto-create on
-  # produce — producing to a missing topic returns NOT_LEADER_OR_FOLLOWER) plus
-  # the demo's order topics, so distributors can write and block-builders /
-  # compactors can consume.
+  observability-topic-setup:
+    <<: [*o11y-image, *setup-res]
+    restart: "no"
+    command: ["krabka-o11y-bootstrap", "--bootstrap=broker:9092"]
+    depends_on:
+      broker: {condition: service_healthy}
+
+  # One-shot: pre-create the demo order topics. The published observability
+  # bootstrap above creates and validates its four WAL and two compacted state
+  # topics against the pinned broker.
   topic-setup:
     image: mirror.gcr.io/apache/kafka:4.3.1
     <<: *setup-res
     restart: "no"
     depends_on:
-      broker: {condition: service_healthy}
+      observability-topic-setup: {condition: service_completed_successfully}
     entrypoint:
       - /bin/sh
       - -c
       - >
-        WAL_RETENTION_MS=${KRABKA_OBSERVABILITY_WAL_RETENTION_MS:-900000}; WAL_SEGMENT_BYTES=${KRABKA_OBSERVABILITY_WAL_SEGMENT_BYTES:-67108864}; for t in __krabka_metrics_wal __krabka_traces_wal __krabka_profiles_wal __krabka_observability_logs_wal orders order-counts; do /opt/kafka/bin/kafka-topics.sh --bootstrap-server broker:9092 --create --if-not-exists --topic "$$t" --partitions 1 --replication-factor 1 --config retention.ms=$$WAL_RETENTION_MS --config segment.bytes=$$WAL_SEGMENT_BYTES || exit 1; /opt/kafka/bin/kafka-configs.sh --bootstrap-server broker:9092 --alter --entity-type topics --entity-name "$$t" --add-config retention.ms=$$WAL_RETENTION_MS,segment.bytes=$$WAL_SEGMENT_BYTES || exit 1; done; echo "topics ready" #magic___^_^___line
+        for t in orders order-counts; do /opt/kafka/bin/kafka-topics.sh --bootstrap-server broker:9092 --create --if-not-exists --topic "$$t" --partitions 1 --replication-factor 1 || exit 1; done; echo "topics ready" #magic___^_^___line
   schema-registry:
     <<: [*krabka-image, *registry-res]
     command: ["krabka-schema-registry", "--bootstrap-servers=broker:9092", "--listen-addr=0.0.0.0:8081", "--schemas-topic-rf=1"]
@@ -236,7 +261,7 @@ services:
   metrics-distributor:
     # krabka-metrics uses --bootstrap (not --wal-bootstrap); the distributor
     # writes to the WAL (Kafka), not the object store, so no --object-store-url.
-    <<: [*krabka-image, *distributor-res]
+    <<: [*o11y-image, *distributor-res]
     command: ["krabka-metrics", "--target=distributor", "--listen=0.0.0.0:4041", "--bootstrap=broker:9092"]
     environment:
       <<: *otlp-env
@@ -245,7 +270,7 @@ services:
       broker: {condition: service_healthy}
 
   metrics-compactor:
-    <<: [*krabka-image, *compactor-res]
+    <<: [*o11y-image, *compactor-res]
     command: ["krabka-metrics", "--target=compactor", "--object-store-url=s3://krabka-metrics", "--bootstrap=broker:9092", "--compactor-retention=${KRABKA_METRICS_COMPACTOR_RETENTION:-1h}", "--compactor-retention-sweep-interval=${KRABKA_METRICS_COMPACTOR_RETENTION_SWEEP_INTERVAL:-30s}"]
     environment:
       <<: [*s3-env, *otlp-env]
@@ -256,7 +281,7 @@ services:
 
   metrics-querier:
     # krabka-metrics-service uses --wal-bootstrap (its own flag name).
-    <<: [*krabka-image, *querier-res]
+    <<: [*o11y-image, *querier-res]
     command: ["krabka-metrics-service", "--target=querier", "--listen=0.0.0.0:9090", "--object-store-url=s3://krabka-metrics", "--manifest-prefix=metrics", "--wal-bootstrap=broker:9092", "--wal-head-retention=${KRABKA_METRICS_QUERIER_WAL_HEAD_RETENTION:-5m}"]
     environment:
       <<: [*s3-env, *otlp-env]
@@ -268,7 +293,7 @@ services:
 
   # ---- TRACES (Tempo) ----
   traces-distributor:
-    <<: [*krabka-image, *distributor-res]
+    <<: [*o11y-image, *distributor-res]
     command: ["krabka-traces", "--target=distributor", "--bootstrap=broker:9092", "--listen=0.0.0.0:3200", "--grpc-listen=0.0.0.0:4317", "--otlp-http-listen=0.0.0.0:4318"]
     environment:
       <<: *otlp-env
@@ -277,7 +302,7 @@ services:
       broker: {condition: service_healthy}
 
   traces-block-builder:
-    <<: [*krabka-image, *compactor-res]
+    <<: [*o11y-image, *compactor-res]
     mem_limit: ${KRABKA_TRACES_BLOCK_BUILDER_MEM:-4g}
     memswap_limit: ${KRABKA_TRACES_BLOCK_BUILDER_MEM:-4g}
     command: ["krabka-traces", "--target=block-builder", "--bootstrap=broker:9092", "--object-store-url=s3://krabka-traces", "--block-builder-flush-max-records=${KRABKA_TRACES_BLOCK_BUILDER_FLUSH_MAX_RECORDS:-50000}", "--block-builder-flush-max-age-ms=${KRABKA_TRACES_BLOCK_BUILDER_FLUSH_MAX_AGE_MS:-60000}"]
@@ -293,7 +318,7 @@ services:
       broker: {condition: service_healthy}
 
   traces-metrics-generator:
-    <<: [*krabka-image, *compactor-res]
+    <<: [*o11y-image, *compactor-res]
     command: ["krabka-traces", "--target=metrics-generator", "--bootstrap=broker:9092", "--remote-write-url=http://metrics-distributor:4041/api/v1/push", "--enable-target-info"]
     environment:
       <<: *otlp-env
@@ -304,7 +329,7 @@ services:
       topic-setup: {condition: service_completed_successfully}
 
   traces-querier:
-    <<: [*krabka-image, *querier-res]
+    <<: [*o11y-image, *querier-res]
     command: ["krabka-traces", "--target=querier", "--listen=0.0.0.0:3200", "--object-store-url=s3://krabka-traces"]
     environment:
       <<: [*s3-env, *otlp-env]
@@ -318,7 +343,7 @@ services:
 
   # ---- LOGS (Loki) — binary is `krabka-observability` (the logs service) ----
   logs-distributor:
-    <<: [*krabka-image, *distributor-res]
+    <<: [*o11y-image, *distributor-res]
     command: ["krabka-observability", "--target=distributor", "--listen-addr=0.0.0.0:3100", "--wal-bootstrap-server=broker:9092", "--object-store-url=s3://krabka-logs"]
     environment:
       <<: [*s3-env, *otlp-env]
@@ -328,7 +353,7 @@ services:
       rustfs-setup: {condition: service_completed_successfully}
 
   logs-compactor:
-    <<: [*krabka-image, *compactor-res]
+    <<: [*o11y-image, *compactor-res]
     command: ["krabka-observability", "--target=compactor", "--wal-bootstrap-server=broker:9092", "--object-store-url=s3://krabka-logs", "--index-prefix=logs"]
     environment:
       <<: [*s3-env, *otlp-env]
@@ -347,7 +372,7 @@ services:
     # shard catalog the compactor writes to S3 (default `local-manifest` reads
     # the querier's empty local disk -> no labels/series). With no --tenant, the
     # tenant is resolved per-request from X-Scope-OrgID.
-    <<: [*krabka-image, *querier-res]
+    <<: [*o11y-image, *querier-res]
     command: ["krabka-observability", "--target=querier", "--listen-addr=0.0.0.0:3100", "--wal-bootstrap-server=broker:9092", "--object-store-url=s3://krabka-logs", "--index-prefix=logs", "--querier-index-source=tenant-object-store-shards", "--wal-group-id=krabka-observability-querier"]
     environment:
       <<: [*s3-env, *otlp-env]
@@ -363,7 +388,7 @@ services:
 
   # ---- PROFILES (Pyroscope) ----
   profiles-distributor:
-    <<: [*krabka-image, *distributor-res]
+    <<: [*o11y-image, *distributor-res]
     command: ["krabka-profiles", "--target=distributor", "--listen=0.0.0.0:4040", "--bootstrap=broker:9092"]
     environment:
       <<: *otlp-env
@@ -372,7 +397,7 @@ services:
       broker: {condition: service_healthy}
 
   profiles-block-builder:
-    <<: [*krabka-image, *compactor-res]
+    <<: [*o11y-image, *compactor-res]
     command: ["krabka-profiles", "--target=block-builder", "--bootstrap=broker:9092", "--object-store-url=s3://krabka-profiles", "--block-builder-flush-records=${KRABKA_PROFILES_BLOCK_BUILDER_FLUSH_RECORDS:-4096}", "--block-builder-flush-max-age-ms=${KRABKA_PROFILES_BLOCK_BUILDER_FLUSH_MAX_AGE_MS:-60000}"]
     environment:
       <<: [*s3-env, *otlp-env]
@@ -392,7 +417,7 @@ services:
     # falls back to 127.0.0.1:9092, can't reach the broker, and dies -> the hot
     # store stays empty and the cold store only has whatever index existed at
     # startup, so the querier returns no profiles.
-    <<: [*krabka-image, *querier-res]
+    <<: [*o11y-image, *querier-res]
     command: ["krabka-profiles", "--target=querier", "--listen=0.0.0.0:4040", "--object-store-url=s3://krabka-profiles", "--bootstrap=broker:9092"]
     environment:
       <<: [*s3-env, *otlp-env]
