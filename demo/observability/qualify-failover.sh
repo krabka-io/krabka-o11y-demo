@@ -56,6 +56,16 @@ capture_queries() {
   phase=$1
   curl -fsS -H 'X-Scope-OrgID: demo' 'http://localhost:9090/api/v1/query?query=krabka_broker_api_requests_total' >"$artifact_dir/metrics-$phase.json"
   curl -fsS -H 'X-Scope-OrgID: demo' 'http://localhost:3100/loki/api/v1/labels' >"$artifact_dir/logs-$phase.json"
+  log_deadline=$(($(date +%s) + ${KRABKA_SIGNAL_TIMEOUT_SECONDS:-120}))
+  while ! curl -fsS -H 'X-Scope-OrgID: demo' --get \
+    'http://localhost:3100/loki/api/v1/query_range' \
+    --data-urlencode 'query={service_name="m20-qualification"} |= "M20 observability recovery qualification"' \
+    >"$artifact_dir/seed-log-$phase.json" 2>/dev/null \
+    || ! jq -e '.status == "success" and (.data.result | length > 0)' \
+      "$artifact_dir/seed-log-$phase.json" >/dev/null; do
+    [ "$(date +%s)" -lt "$log_deadline" ] || { echo "seeded qualification log not queryable during $phase" >&2; exit 1; }
+    sleep 5
+  done
   curl -fsS -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' --data-urlencode 'q={ resource.service.name != "" }' >"$artifact_dir/traces-$phase.json"
   curl -fsS -H 'X-Scope-OrgID: demo' -H 'content-type: application/json' -d '{}' 'http://localhost:4040/querier.v1.QuerierService/ProfileTypes' >"$artifact_dir/profiles-$phase.json"
   for service in demo-produce demo-stream demo-consume; do

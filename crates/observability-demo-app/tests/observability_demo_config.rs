@@ -176,6 +176,9 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
         "produce_order",
         "process_order",
         "M20 observability recovery qualification",
+        "seed-log-$phase.json",
+        r#"query={service_name="m20-qualification"}"#,
+        r#".data.result | length > 0"#,
     ] {
         assert2::assert!(qualification.contains(needle));
     }
@@ -189,6 +192,8 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
 
     let readme = observability_script("README.md");
     assert2::assert!(readme.contains("crabka_pgexec::exec=trace"));
+    let gres_dashboard = dashboard("krabka-gres-traces.json");
+    assert2::assert!(gres_dashboard.contains("crabka_pgexec::exec=trace"));
     for setting in [
         "KRABKA_DEMO_IMAGE=ghcr.io/robot-head/crabka-demo:latest",
         "KRABKA_SCHEMA_REGISTRY_BIN=krabka-schema-registry",
