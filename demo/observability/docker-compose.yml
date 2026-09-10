@@ -20,12 +20,14 @@ x-otlp-env: &otlp-env
   # converges while still leaving plenty of demo traces to view.
   KRABKA_OTLP_SAMPLE_RATIO: "0.05"
   KRABKA_OTLP_HEARTBEAT_INTERVAL: "${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}"
+  KRABKA_OTLP_FILTER: "${KRABKA_OTLP_FILTER:-info}"
   KRABKA_ADMIN_LISTEN_ADDR: 0.0.0.0:9404
   # The workload image predates the repository's namespace rename. Keep its
   # old environment spelling until that image is republished.
   CRABKA_OTLP_ENDPOINT: http://alloy:4317
   CRABKA_OTLP_SAMPLE_RATIO: "0.05"
   CRABKA_OTLP_HEARTBEAT_INTERVAL: "${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}"
+  CRABKA_OTLP_FILTER: "${KRABKA_OTLP_FILTER:-info}"
   CRABKA_ADMIN_LISTEN_ADDR: 0.0.0.0:9404
   # Enable jemalloc heap profiling support continuously so heap profiles include
   # long-lived allocations, but sample coarsely (~every 1 MiB) so small demo
@@ -45,9 +47,8 @@ x-otlp-env: &otlp-env
 #   melange build packaging/melange/krabka-demo.yaml --source-dir . --signing-key melange.rsa --arch x86_64 --runner docker --cache-dir "$PWD/.melange-cache" --out-dir packages/
 #   apko build packaging/apko/krabka-demo.yaml ghcr.io/robot-head/crabka-demo:latest krabka-demo.tar --arch x86_64 --repository-append "$PWD/packages" --keyring-append "$PWD/melange.rsa.pub"
 #   docker load < krabka-demo.tar
-# then set KRABKA_DEMO_IMAGE to that tag and the three `*_BIN` overrides below
-# to their post-rename names (`krabka-schema-registry`, `krabka`, and
-# `krabka-gres`) before `docker compose up -d`.
+# then follow the explicit environment override recipe in README.md before
+# `docker compose up -d`.
 x-krabka-image: &krabka-image
   image: ${KRABKA_DEMO_IMAGE:-ghcr.io/robot-head/crabka-demo@sha256:1fa96b3322ae0f29dec976d2764e1d94ca4b3edc854552868b9f0f4a6b8ab2db}
   restart: unless-stopped

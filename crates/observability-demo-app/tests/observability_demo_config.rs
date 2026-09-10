@@ -164,7 +164,10 @@ fn docker_log_tailing_is_scoped_to_the_demo_compose_project() {
 fn recovery_qualification_routes_and_seeds_logs_and_traces() {
     let config = alloy_config();
     assert2::assert!(config.contains("logs    = [otelcol.exporter.otlphttp.logs.input]"));
-    assert2::assert!(config.contains("endpoint = \"http://logs-distributor:3100\""));
+    assert2::assert!(config.contains("endpoint = \"http://logs-distributor:3100/otlp\""));
+    assert2::assert!(config.contains("prometheus.relabel \"krabka_namespace\""));
+    assert2::assert!(config.contains("regex         = \"crabka_demo_(.*)\""));
+    assert2::assert!(config.contains("replacement   = \"krabka_demo_$1\""));
 
     let qualification = observability_script("qualify-failover.sh");
     for needle in [
@@ -179,6 +182,20 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
 
     let smoke = observability_script("smoke.sh");
     assert2::assert!(smoke.contains("grep -Eq '(krabka|crabka)_demo_'"));
+
+    let compose = docker_compose();
+    assert2::assert!(compose.contains("KRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info}\""));
+    assert2::assert!(compose.contains("CRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info}\""));
+
+    let readme = observability_script("README.md");
+    for setting in [
+        "KRABKA_DEMO_IMAGE=ghcr.io/robot-head/crabka-demo:latest",
+        "KRABKA_SCHEMA_REGISTRY_BIN=krabka-schema-registry",
+        "KRABKA_CLI_BIN=krabka",
+        "KRABKA_GRES_BIN=krabka-gres",
+    ] {
+        assert2::assert!(readme.contains(setting));
+    }
 }
 
 #[test]
