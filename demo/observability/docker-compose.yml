@@ -21,6 +21,12 @@ x-otlp-env: &otlp-env
   KRABKA_OTLP_SAMPLE_RATIO: "0.05"
   KRABKA_OTLP_HEARTBEAT_INTERVAL: "${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}"
   KRABKA_ADMIN_LISTEN_ADDR: 0.0.0.0:9404
+  # The workload image predates the repository's namespace rename. Keep its
+  # old environment spelling until that image is republished.
+  CRABKA_OTLP_ENDPOINT: http://alloy:4317
+  CRABKA_OTLP_SAMPLE_RATIO: "0.05"
+  CRABKA_OTLP_HEARTBEAT_INTERVAL: "15s"
+  CRABKA_ADMIN_LISTEN_ADDR: 0.0.0.0:9404
   # Enable jemalloc heap profiling support continuously so heap profiles include
   # long-lived allocations, but sample coarsely (~every 1 MiB) so small demo
   # services still produce useful heap profiles without tracing every
@@ -51,6 +57,10 @@ x-broker-image: &broker-image
 x-o11y-image: &o11y-image
   image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:ca487a67550d11efa3d7ad00b1a65ff1ab6c4d92844665a61a1ea991be83e3e8}
   restart: unless-stopped
+
+x-legacy-demo-env: &legacy-demo-env
+  CRABKA_DEMO_BOOTSTRAP: broker:9092
+  CRABKA_DEMO_REGISTRY: http://schema-registry:8081
 
 # ---------------------------------------------------------------------------
 # Per-tier resource limits (hard caps; memswap_limit == mem_limit so a tier that
@@ -243,7 +253,7 @@ services:
         for t in orders order-counts; do /opt/kafka/bin/kafka-topics.sh --bootstrap-server broker:9092 --create --if-not-exists --topic "$$t" --partitions 1 --replication-factor 1 || exit 1; done; echo "topics ready" #magic___^_^___line
   schema-registry:
     <<: [*krabka-image, *registry-res]
-    command: ["krabka-schema-registry", "--bootstrap-servers=broker:9092", "--listen-addr=0.0.0.0:8081", "--schemas-topic-rf=1"]
+    command: ["crabka-schema-registry", "--bootstrap-servers=broker:9092", "--listen-addr=0.0.0.0:8081", "--schemas-topic-rf=1"]
     environment:
       <<: *otlp-env
       OTEL_SERVICE_NAME: schema-registry
@@ -482,7 +492,7 @@ services:
     <<: [*krabka-image, *demo-res]
     command: ["observability-demo-app", "--role=produce"]
     environment:
-      <<: *otlp-env
+      <<: [*otlp-env, *legacy-demo-env]
       OTEL_SERVICE_NAME: demo-produce
       KRABKA_DEMO_BOOTSTRAP: broker:9092
       KRABKA_DEMO_REGISTRY: http://schema-registry:8081
@@ -497,7 +507,7 @@ services:
     <<: [*krabka-image, *demo-res]
     command: ["observability-demo-app", "--role=stream"]
     environment:
-      <<: *otlp-env
+      <<: [*otlp-env, *legacy-demo-env]
       OTEL_SERVICE_NAME: demo-stream
       KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT: "${KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT:-10s}"
       KRABKA_DEMO_STREAMS_FETCH_MIN: "${KRABKA_DEMO_STREAMS_FETCH_MIN:-1B}"
@@ -520,7 +530,7 @@ services:
     <<: [*krabka-image, *demo-res]
     command: ["observability-demo-app", "--role=consume"]
     environment:
-      <<: *otlp-env
+      <<: [*otlp-env, *legacy-demo-env]
       OTEL_SERVICE_NAME: demo-consume
       KRABKA_DEMO_BOOTSTRAP: broker:9092
       KRABKA_DEMO_REGISTRY: http://schema-registry:8081
@@ -573,13 +583,13 @@ services:
       - /bin/sh
       - -c
       - >
-        krabka gres describe --bootstrap broker:9092 --name demo >/dev/null 2>&1 && exit 0; printf '%s' "${KRABKA_GRES_PASSWORD:-demo}" | krabka gres create-tenant --bootstrap broker:9092 --name demo --user demo --password-stdin
+        crabka gres describe --bootstrap broker:9092 --name demo >/dev/null 2>&1 && exit 0; printf '%s' "${KRABKA_GRES_PASSWORD:-demo}" | crabka gres create-tenant --bootstrap broker:9092 --name demo --user demo --password-stdin
     depends_on:
       broker: {condition: service_healthy}
 
   gres:
     <<: [*krabka-image, *gres-res]
-    command: ["krabka-gres", "--listen=0.0.0.0:5433", "--substrate-bootstrap=broker:9092", "--tenant=demo", "--cache-dir=/data"]
+    command: ["crabka-gres", "--listen=0.0.0.0:5433", "--substrate-bootstrap=broker:9092", "--tenant=demo", "--cache-dir=/data"]
     environment:
       <<: *otlp-env
       OTEL_SERVICE_NAME: gres
@@ -590,6 +600,7 @@ services:
       # waterfall at 5% would drop 19 of every 20 traces the demo exists to
       # show.
       KRABKA_OTLP_SAMPLE_RATIO: "1.0"
+      CRABKA_OTLP_SAMPLE_RATIO: "1.0"
       # Verbatim SQL (`db.query.text`) on statement spans. OFF by default: the
       # query text carries literals, so it is the one setting here that can
       # export personal data or secrets. Spans still carry db.query.summary
