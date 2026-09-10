@@ -1,0 +1,80 @@
+#!/bin/sh
+set -eu
+
+artifact_dir=${KRABKA_QUALIFICATION_ARTIFACT_DIR:-qualification-artifacts/$(date -u +%Y%m%dT%H%M%SZ)}
+mkdir -p "$artifact_dir"
+started=$(date +%s)
+{
+  printf 'krabka-o11y-demo '
+  git -C ../.. rev-parse HEAD
+  grep 'git = "https://github.com/krabka-io/' ../../Cargo.toml | sort -u
+} >"$artifact_dir/source-revisions.txt"
+
+finish() {
+  status=$?
+  trap - EXIT
+  docker compose logs --no-color >"$artifact_dir/compose.log" 2>&1 || true
+  docker compose config --images >"$artifact_dir/images.txt" 2>&1 || true
+  docker compose config >"$artifact_dir/compose.yaml" 2>&1 || true
+  finished=$(date +%s)
+  printf '{"started_at_epoch":%s,"finished_at_epoch":%s,"recovery_seconds":%s,"exit_status":%s}\n' \
+    "$started" "$finished" "$((finished - started))" "$status" >"$artifact_dir/result.json"
+  (cd "$artifact_dir" && sha256sum ./* >SHA256SUMS)
+  exit "$status"
+}
+trap finish EXIT
+
+ledger() {
+  for group in krabka-metrics-compactor krabka-traces-block-builder krabka-profiles-block-builder krabka-observability-compactor; do
+    docker compose run --rm --no-deps --entrypoint /opt/kafka/bin/kafka-consumer-groups.sh topic-setup \
+      --bootstrap-server broker:9092 --describe --group "$group" || true
+  done
+}
+
+offset_sum() {
+  awk '$4 ~ /^[0-9]+$/ {sum += $4; seen = 1} END {if (!seen) exit 1; print sum}' "$1"
+}
+
+capture_queries() {
+  phase=$1
+  curl -fsS -H 'X-Scope-OrgID: demo' 'http://localhost:9090/api/v1/query?query=krabka_broker_api_requests_total' >"$artifact_dir/metrics-$phase.json"
+  curl -fsS -H 'X-Scope-OrgID: demo' 'http://localhost:3100/loki/api/v1/labels' >"$artifact_dir/logs-$phase.json"
+  curl -fsS -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' --data-urlencode 'q={ resource.service.name != "" }' >"$artifact_dir/traces-$phase.json"
+  curl -fsS -H 'X-Scope-OrgID: demo' -H 'content-type: application/json' -d '{}' 'http://localhost:4040/querier.v1.QuerierService/ProfileTypes' >"$artifact_dir/profiles-$phase.json"
+  for service in demo-produce demo-stream demo-consume; do
+    docker compose exec -T "$service" curl -fsS http://localhost:9404/metrics >"$artifact_dir/$service-$phase.prom"
+  done
+}
+
+./smoke.sh | tee "$artifact_dir/before-smoke.log"
+capture_queries before
+ledger >"$artifact_dir/offsets-before.txt" 2>&1
+
+docker compose kill -s KILL traces-block-builder
+docker compose restart broker
+docker compose up -d traces-block-builder
+./smoke.sh | tee "$artifact_dir/after-recovery-smoke.log"
+capture_queries after
+ledger >"$artifact_dir/offsets-after.txt" 2>&1
+before_offset=$(offset_sum "$artifact_dir/offsets-before.txt")
+after_offset=$(offset_sum "$artifact_dir/offsets-after.txt")
+[ "$after_offset" -ge "$before_offset" ]
+printf 'before_offset_sum=%s\nafter_offset_sum=%s\n' "$before_offset" "$after_offset" >"$artifact_dir/reconciliation.txt"
+
+docker compose stop traces-querier
+alert_deadline=$(($(date +%s) + ${KRABKA_ALERT_TIMEOUT_SECONDS:-180}))
+while ! curl -fsS http://localhost:3000/api/alertmanager/grafana/api/v2/alerts 2>/dev/null | jq -e 'any(.[]; .labels.alertname == "Observability service down")' >/dev/null; do
+  [ "$(date +%s)" -lt "$alert_deadline" ] || { echo "service-down alert did not fire" >&2; exit 1; }
+  sleep 5
+done
+curl -fsS http://localhost:3000/api/alertmanager/grafana/api/v2/alerts >"$artifact_dir/alerts-firing.json"
+
+docker compose start traces-querier
+resolve_deadline=$(($(date +%s) + ${KRABKA_ALERT_TIMEOUT_SECONDS:-180}))
+while curl -fsS http://localhost:3000/api/alertmanager/grafana/api/v2/alerts 2>/dev/null | jq -e 'any(.[]; .labels.alertname == "Observability service down")' >/dev/null; do
+  [ "$(date +%s)" -lt "$resolve_deadline" ] || { echo "service-down alert did not resolve" >&2; exit 1; }
+  sleep 5
+done
+curl -fsS http://localhost:3000/api/alertmanager/grafana/api/v2/alerts >"$artifact_dir/alerts-resolved.json"
+
+echo "$artifact_dir"

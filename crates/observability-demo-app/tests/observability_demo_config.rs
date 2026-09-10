@@ -384,16 +384,30 @@ fn idle_profile_scrapes_are_lower_frequency() {
 }
 
 #[test]
-fn every_krabka_service_pulls_the_published_demo_image() {
+fn qualification_images_are_explicit() {
     let compose = docker_compose();
 
     check!(
-        compose.contains("image: ghcr.io/robot-head/crabka-demo:latest"),
-        "all demo Krabka services should pull the GHCR image by default"
+        compose.contains("ghcr.io/krabka-io/krabka-broker@sha256:886fbe511a0cadacec0c352fe10b295063b3807c0df133d2fce4ea804f4fffcd"),
+        "the M20 stack should default to the qualified broker image"
     );
     check!(
-        !compose.contains("image: krabka-demo:latest"),
-        "compose should not require a short local krabka-demo tag for broker-format"
+        compose.contains("KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:ca487a67550d11efa3d7ad00b1a65ff1ab6c4d92844665a61a1ea991be83e3e8"),
+        "the observability roles should share one overridable published image"
+    );
+    for executable in ["/usr/bin/krabka-format", "/usr/bin/krabka-guard"] {
+        check!(
+            compose.contains(executable),
+            "the distroless broker image should invoke its shipped {executable} binary"
+        );
+    }
+    check!(
+        !compose.contains("command: [\"krabka-broker\""),
+        "the broker command should not repeat the image entrypoint"
+    );
+    check!(
+        compose.contains("command: [\"krabka-o11y-bootstrap\", \"--bootstrap=broker:9092\"]"),
+        "the published bootstrap should enforce the six-topic contract"
     );
 }
 

@@ -1,0 +1,44 @@
+name: qualify-m20
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/qualify-m20.yml
+      - demo/observability/**
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/qualify-m20.yml
+      - demo/observability/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: free disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - name: start pinned stack
+        working-directory: demo/observability
+        run: docker compose up -d --wait --wait-timeout 600
+      - name: qualify recovery
+        working-directory: demo/observability
+        env:
+          KRABKA_QUALIFICATION_ARTIFACT_DIR: qualification-artifacts/run
+        run: ./qualify-failover.sh
+      - name: evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m20-observability-recovery
+          path: demo/observability/qualification-artifacts/run/
+          if-no-files-found: error
+      - name: stop stack
+        if: always()
+        working-directory: demo/observability
+        run: docker compose down -v
