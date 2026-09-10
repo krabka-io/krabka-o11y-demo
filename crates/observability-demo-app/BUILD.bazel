@@ -30,6 +30,7 @@ crate_tests(
     # The sixteenth suite reads the compose stack and dashboards the demo ships.
     data = [
         ":observability-demo-app",
+        "//:.github/workflows/qualify-m20.yml",
         "//:demo_observability",
     ],
     lib = "observability_demo_app",
