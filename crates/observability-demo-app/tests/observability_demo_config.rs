@@ -173,8 +173,12 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
     for needle in [
         "http://alloy:4318/v1/traces",
         "http://alloy:4318/v1/logs",
-        "produce_order",
-        "process_order",
+        "m20_qualification_root",
+        "m20_qualification_recovery_child",
+        "/proc/sys/kernel/random/uuid",
+        "seed-trace-id.txt",
+        "/api/traces/$qualification_trace_id",
+        "seed-trace-$phase.pb",
         "M20 observability recovery qualification",
         "seed-log-$phase.json",
         r#"query={service_name="m20-qualification"}"#,
@@ -184,7 +188,16 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
     }
 
     let smoke = observability_script("smoke.sh");
+    assert2::assert!(smoke.contains("profiles gres demo-produce"));
+    assert2::assert!(smoke.contains("resource.service.name = \"gres\""));
+    assert2::assert!(smoke.contains("name = \"produce_order\""));
+    assert2::assert!(smoke.contains("name = \"process_order\""));
     assert2::assert!(smoke.contains("grep -Eq '(krabka|crabka)_demo_'"));
+    let workflow = std::fs::read_to_string(repo_root().join(".github/workflows/qualify-m20.yml"))
+        .expect("read M20 qualification workflow");
+    assert2::assert!(workflow.contains(
+        "KRABKA_SMOKE_TARGETS: metrics logs traces cross-signal profiles demo-produce demo-stream demo-consume"
+    ));
 
     let compose = docker_compose();
     assert2::assert!(compose.contains("KRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info}\""));

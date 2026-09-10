@@ -42,6 +42,7 @@ jobs:
         working-directory: demo/observability
         env:
           KRABKA_QUALIFICATION_ARTIFACT_DIR: qualification-artifacts/run
+          KRABKA_SMOKE_TARGETS: metrics logs traces cross-signal profiles demo-produce demo-stream demo-consume
         run: ./qualify-failover.sh
       - name: evidence
         if: always()
