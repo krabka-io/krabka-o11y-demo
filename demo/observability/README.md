@@ -197,7 +197,8 @@ commits are slow.
 
 `pg.blocking_worker`, `pg.scan`, `pg.read_context` and the contended-row-lock
 spans are at the `TRACE` level and are off by default. To see them, add
-`krabka_pgexec::exec=trace` to `KRABKA_OTLP_FILTER` on the `gres` service.
+`crabka_pgexec::exec=trace` to `KRABKA_OTLP_FILTER` while the pinned legacy
+image is the default (`krabka_pgexec::exec=trace` for a post-rename image).
 
 **Naming note.** The statement spans set `otel.name` to the query summary, so
 they export as `SELECT demo_orders` and not as `db.statement`. Select them by

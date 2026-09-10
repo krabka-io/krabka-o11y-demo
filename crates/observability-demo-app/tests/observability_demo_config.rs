@@ -188,6 +188,7 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
     assert2::assert!(compose.contains("CRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info}\""));
 
     let readme = observability_script("README.md");
+    assert2::assert!(readme.contains("crabka_pgexec::exec=trace"));
     for setting in [
         "KRABKA_DEMO_IMAGE=ghcr.io/robot-head/crabka-demo:latest",
         "KRABKA_SCHEMA_REGISTRY_BIN=krabka-schema-registry",
