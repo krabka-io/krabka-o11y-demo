@@ -472,7 +472,7 @@ fn qualification_images_are_explicit() {
         "the M20 stack should default to the qualified broker image"
     );
     check!(
-        compose.contains("KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:b73a73cc43b92fb6ca09514497d2eecb198466953060384eb67ef2bbd4ea7b9e"),
+        compose.contains("KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:1f278b3e776feb246953ea6a4ed6474be11f392e4a3a3d41819a038b52b0b23a"),
         "the observability roles should share one overridable published image"
     );
     for executable in ["/usr/bin/krabka-format", "/usr/bin/krabka-guard"] {
