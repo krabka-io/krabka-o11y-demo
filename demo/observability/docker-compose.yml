@@ -58,7 +58,7 @@ x-broker-image: &broker-image
   restart: unless-stopped
 
 x-o11y-image: &o11y-image
-  image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:ca487a67550d11efa3d7ad00b1a65ff1ab6c4d92844665a61a1ea991be83e3e8}
+  image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:1f278b3e776feb246953ea6a4ed6474be11f392e4a3a3d41819a038b52b0b23a}
   restart: unless-stopped
 
 x-legacy-demo-env: &legacy-demo-env
@@ -190,6 +190,10 @@ services:
     environment:
       <<: *otlp-env
       OTEL_SERVICE_NAME: broker
+      # Broker request spans/logs feed the observability WALs, whose own Kafka
+      # traffic would otherwise recursively generate more broker telemetry.
+      RUST_LOG: "${KRABKA_RUST_LOG:-info,pprof::profiler=warn,object_store::client::retry=warn,krabka_broker::network::dispatch=warn}"
+      KRABKA_OTLP_FILTER: "${KRABKA_OTLP_FILTER:-info,krabka_broker::network::dispatch=warn}"
       KRABKA_METRICS_LISTEN_ADDR: 0.0.0.0:9404
     ports: ["9092:9092", "9404:9404"]
     volumes: ["broker-data:/data"]

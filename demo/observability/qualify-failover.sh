@@ -78,7 +78,9 @@ capture_queries() {
     sleep 5
   done
   [ -s "$artifact_dir/seed-trace-$phase.pb" ]
-  curl -fsS -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' --data-urlencode 'q={ resource.service.name != "" }' >"$artifact_dir/traces-$phase.json"
+  curl -fsS -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' \
+    --data-urlencode 'start=0' --data-urlencode "end=$(date +%s)" \
+    --data-urlencode 'q={ resource.service.name != "" }' >"$artifact_dir/traces-$phase.json"
   curl -fsS -H 'X-Scope-OrgID: demo' -H 'content-type: application/json' -d '{}' 'http://localhost:4040/querier.v1.QuerierService/ProfileTypes' >"$artifact_dir/profiles-$phase.json"
   for service in demo-produce demo-stream demo-consume; do
     docker compose exec -T "$service" curl -fsS http://localhost:9404/metrics >"$artifact_dir/$service-$phase.prom"
