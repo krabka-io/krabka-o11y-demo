@@ -1,0 +1,55 @@
+# The all-in-one Krabka observability demo image.
+#
+# apko assembles an OCI image from APK packages. It does not compile anything.
+# The package list below is the whole image, so this file needs no base image.
+# `krabka-io/krabka-broker` keeps `packaging/base.apko.yaml` for its own Bazel
+# image build. That file builds one amd64 layer, and rules_apko reads it through
+# a lockfile label inside the broker module. This repository cannot reference it,
+# and this image also builds for aarch64. Keep the baseline packages here.
+#
+# DANGLING DEPENDENCY: `krabka-demo`. No repository produces that APK today.
+# `krabka-io/tooling` keeps the recipe at `packaging/melange/krabka-demo.yaml`
+# as a reference document. That recipe builds ten binaries from one workspace,
+# and nine of them left the monorepo for other repositories:
+#
+#   krabka-broker            krabka-io/krabka-broker
+#   krabka (the CLI)         krabka-io/krabka-cli
+#   krabka-metrics           krabka-io/krabka-o11y
+#   krabka-metrics-service   krabka-io/krabka-o11y
+#   krabka-traces            krabka-io/krabka-o11y
+#   krabka-observability     krabka-io/krabka-o11y
+#   krabka-profiles          krabka-io/krabka-o11y
+#   krabka-schema-registry   krabka-io/krabka-schema-registry
+#   krabka-gres              krabka-io/gres
+#   observability-demo-app   this repository
+#
+# `docker-compose.yml` and `README.md` already name this file and a sibling
+# recipe at `packaging/melange/krabka-demo.yaml`. This change adds the apko half.
+# The melange half stays missing, so `apko build` fails on this file. The demo
+# itself still runs: compose pulls the published image by digest.
+#
+# `docker-compose.yml` takes four binaries out of this image: krabka-schema-registry
+# for the registry service, krabka for the gres tenant setup, krabka-gres for the
+# SQL engine, and observability-demo-app for the three workload services. A recipe
+# in this repository can build one of the four. Someone has to decide how the demo
+# gets the other three. One option splits the demo image per component repository.
+# Another option keeps one image and copies the three binaries out of the images
+# that own them. This file does not make that choice.
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - ca-certificates-bundle
+    - tzdata
+    - wolfi-baselayout
+    - busybox
+    - curl
+    - krabka-demo
+
+work-dir: /data
+
+archs:
+  - x86_64
+  - aarch64
