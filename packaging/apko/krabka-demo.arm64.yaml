@@ -1,5 +1,4 @@
-# Locked Wolfi base for the observability demo application. apko owns the OS
-# packages; rules_img adds the Bazel-built observability-demo-app binary.
+# Locked ARM64 Wolfi base for the observability demo application.
 contents:
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
@@ -31,4 +30,4 @@ paths:
     permissions: 0o755
 
 archs:
-  - amd64
+  - arm64
