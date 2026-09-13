@@ -12,6 +12,7 @@ module(
 
 bazel_dep(name = "rules_rs", version = "0.0.110")
 bazel_dep(name = "rules_rs_mutants", version = "0.0.1")
+bazel_dep(name = "platforms", version = "1.1.0")
 
 # rules_rs_mutants is not published to the Bazel Central Registry, so the
 # `bazel_dep` above has nothing to resolve against without this override.
@@ -57,6 +58,29 @@ register_toolchains("@toolchains_protoc_hub//:all")
 
 # `sh_test`, which //bazel/defs.bzl loads for container-driven suites.
 bazel_dep(name = "rules_shell", version = "0.8.0")
+
+# The demo application image uses the same packaging stack as the broker and
+# observability repositories: apko assembles locked Wolfi bases and rules_img
+# adds the Bazel-built binary and publishes the resulting manifests.
+bazel_dep(name = "rules_img", version = "0.3.20")
+bazel_dep(name = "rules_apko", version = "1.5.56")
+
+apko_toolchain = use_extension("@rules_apko//apko:extensions.bzl", "apko")
+apko_toolchain.toolchain(apko_version = "v1.2.40")
+use_repo(apko_toolchain, "apko_toolchains")
+
+register_toolchains("@apko_toolchains//:all")
+
+apk = use_extension("@rules_apko//apko:extensions.bzl", "apko")
+apk.translate_lock(
+    name = "demo_base_lock",
+    lock = "//packaging/apko:krabka-demo.lock.json",
+)
+apk.translate_lock(
+    name = "demo_base_arm64_lock",
+    lock = "//packaging/apko:krabka-demo.arm64.lock.json",
+)
+use_repo(apk, "demo_base_arm64_lock", "demo_base_lock")
 
 # ---------------------------------------------------------------------------
 # Format and lint. See //tools/format and //tools/lint.
