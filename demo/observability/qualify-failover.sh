@@ -35,6 +35,11 @@ offset_sum() {
   awk '$4 ~ /^[0-9]+$/ {sum += $4; seen = 1} END {if (!seen) exit 1; print sum}' "$1"
 }
 
+has_service_down_alert() {
+  jq -e --arg job "$1" \
+    'any(.[]; .labels.alertname == "Observability service down" and .labels.job == $job)'
+}
+
 seed_qualification_signals() {
   now=$(date +%s%N)
   end=$((now + 1000000))
@@ -105,7 +110,7 @@ printf 'before_offset_sum=%s\nafter_offset_sum=%s\n' "$before_offset" "$after_of
 
 docker compose stop traces-querier
 alert_deadline=$(($(date +%s) + ${KRABKA_ALERT_TIMEOUT_SECONDS:-180}))
-while ! curl -fsS http://localhost:3000/api/alertmanager/grafana/api/v2/alerts 2>/dev/null | jq -e 'any(.[]; .labels.alertname == "Observability service down")' >/dev/null; do
+while ! curl -fsS http://localhost:3000/api/alertmanager/grafana/api/v2/alerts 2>/dev/null | has_service_down_alert traces-querier >/dev/null; do
   [ "$(date +%s)" -lt "$alert_deadline" ] || { echo "service-down alert did not fire" >&2; exit 1; }
   sleep 5
 done
@@ -113,7 +118,7 @@ curl -fsS http://localhost:3000/api/alertmanager/grafana/api/v2/alerts >"$artifa
 
 docker compose start traces-querier
 resolve_deadline=$(($(date +%s) + ${KRABKA_ALERT_TIMEOUT_SECONDS:-180}))
-while curl -fsS http://localhost:3000/api/alertmanager/grafana/api/v2/alerts 2>/dev/null | jq -e 'any(.[]; .labels.alertname == "Observability service down")' >/dev/null; do
+while curl -fsS http://localhost:3000/api/alertmanager/grafana/api/v2/alerts 2>/dev/null | has_service_down_alert traces-querier >/dev/null; do
   [ "$(date +%s)" -lt "$resolve_deadline" ] || { echo "service-down alert did not resolve" >&2; exit 1; }
   sleep 5
 done
