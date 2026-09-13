@@ -110,7 +110,7 @@ toolchains.toolchain(
     # dependency source of truth" arrangement exists to avoid.
     version = "1.97.1",
 )
-use_repo(toolchains, "krabka_rust_toolchains")
+use_repo(toolchains, "default_rust_toolchains", "krabka_rust_toolchains")
 
 register_toolchains("@krabka_rust_toolchains//...")
 

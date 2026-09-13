@@ -468,11 +468,11 @@ fn qualification_images_are_explicit() {
     let compose = docker_compose();
 
     check!(
-        compose.contains("ghcr.io/krabka-io/krabka-broker@sha256:15851611a7d5df6e20d3f9bd85b3821ca2dd52d5ca6f4042f5a4cfe0a3a1ab89"),
+        compose.contains("ghcr.io/krabka-io/krabka-broker@sha256:6b51b36166590f07a4f28bd480296e59ad14162d4bc518a50678fa0f20fae8df"),
         "the M20 stack should default to the qualified broker image"
     );
     check!(
-        compose.contains("KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:1f278b3e776feb246953ea6a4ed6474be11f392e4a3a3d41819a038b52b0b23a"),
+        compose.contains("KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:3032e3ba2c11a6c014e499edabd7fb6f8939f9d7d40ae659bd4dfbdad1051efa"),
         "the observability roles should share one overridable published image"
     );
     for executable in ["/usr/bin/krabka-format", "/usr/bin/krabka-guard"] {
