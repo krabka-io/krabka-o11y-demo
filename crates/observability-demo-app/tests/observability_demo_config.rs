@@ -192,9 +192,16 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
         "seed-log-$phase.json",
         r#"query={service_name=\"m20-qualification\"}"#,
         r#".data.result | length > 0"#,
+        r#".labels.job == $job"#,
     ] {
         assert2::assert!(qualification.contains(needle));
     }
+    assert2::assert!(
+        qualification
+            .matches("has_service_down_alert traces-querier")
+            .count()
+            == 2
+    );
 
     let smoke = observability_script("smoke.sh");
     assert2::assert!(smoke.contains("profiles gres demo-produce"));
