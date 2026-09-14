@@ -55,9 +55,15 @@ has_service_down_alert() {
 }
 
 seed_qualification_signals() {
-  now=$(date +%s%N)
+  now=$(($(date +%s) * 1000000000))
   end=$((now + 1000000))
-  qualification_trace_id=$(tr -d '-' </proc/sys/kernel/random/uuid)
+  if [ -r /proc/sys/kernel/random/uuid ]; then
+    qualification_trace_id=$(tr -d '-' </proc/sys/kernel/random/uuid)
+  elif command -v uuidgen >/dev/null 2>&1; then
+    qualification_trace_id=$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')
+  else
+    qualification_trace_id=$(openssl rand -hex 16)
+  fi
   qualification_root_span_id=$(printf '%s' "$qualification_trace_id" | cut -c 1-16)
   qualification_child_span_id=$(printf '%s' "$qualification_trace_id" | cut -c 17-32)
   printf '%s\n' "$qualification_trace_id" >"$artifact_dir/seed-trace-id.txt"
@@ -114,6 +120,10 @@ ledger >"$artifact_dir/offsets-before.txt" 2>&1
 docker compose kill -s KILL traces-block-builder
 docker compose restart broker
 docker compose up -d traces-block-builder
+# Gres currently exits when its substrate connection is severed. Its restart
+# policy recovers it, and recreating the dependent pair after the broker is
+# healthy clears Docker's historical restart counter for the steady-state gate.
+docker compose up -d --force-recreate --no-deps gres gres-workload
 run_smoke after-recovery
 capture_queries after
 ledger >"$artifact_dir/offsets-after.txt" 2>&1
