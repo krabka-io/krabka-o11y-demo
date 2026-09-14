@@ -127,7 +127,12 @@ export KRABKA_SCHEMA_REGISTRY_BIN=krabka-schema-registry
 export KRABKA_CLI_BIN=krabka
 
 cd ../gres
-bazel run -c opt --platforms=//:linux_arm64 //packaging/apko:load
+case "$(uname -m)" in
+  arm64|aarch64) gres_platform=//:linux_arm64 ;;
+  x86_64|amd64) gres_platform=//:linux_amd64 ;;
+  *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+bazel run -c opt --platforms="${gres_platform}" //packaging/apko:load
 export KRABKA_GRES_IMAGE=krabka-io/gres:dev
 cd ../krabka-o11y-demo
 cd demo/observability && docker compose up -d
