@@ -2568,7 +2568,7 @@ dependencies = [
 [[package]]
 name = "krabka-client-consumer"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-client-rs?rev=1664636ac2bae7884e584515110effbde4240201#1664636ac2bae7884e584515110effbde4240201"
+source = "git+https://github.com/krabka-io/krabka-client-rs?rev=7773d08bca29c7c837f6653d9ab069b19f821da7#7773d08bca29c7c837f6653d9ab069b19f821da7"
 dependencies = [
  "assert2",
  "bon",
@@ -2588,7 +2588,7 @@ dependencies = [
 [[package]]
 name = "krabka-client-core"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-client-rs?rev=1664636ac2bae7884e584515110effbde4240201#1664636ac2bae7884e584515110effbde4240201"
+source = "git+https://github.com/krabka-io/krabka-client-rs?rev=7773d08bca29c7c837f6653d9ab069b19f821da7#7773d08bca29c7c837f6653d9ab069b19f821da7"
 dependencies = [
  "async-trait",
  "bon",
@@ -2612,7 +2612,7 @@ dependencies = [
 [[package]]
 name = "krabka-client-producer"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-client-rs?rev=1664636ac2bae7884e584515110effbde4240201#1664636ac2bae7884e584515110effbde4240201"
+source = "git+https://github.com/krabka-io/krabka-client-rs?rev=7773d08bca29c7c837f6653d9ab069b19f821da7#7773d08bca29c7c837f6653d9ab069b19f821da7"
 dependencies = [
  "assert2",
  "async-trait",
@@ -5741,18 +5741,9 @@ dependencies = [
 
 [[package]]
 name = "tinyvec"
-version = "1.13.2"
+version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cf0ded5c4e56918d8f8a339e1bb67d038d3bc6d144ac407904015ba2e4cde9b"
-dependencies = [
- "tinyvec_macros",
-]
-
-[[package]]
-name = "tinyvec_macros"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tokio"
@@ -7057,7 +7048,7 @@ source = "git+https://github.com/krabka-io/krabka-broker?rev=81836430c7dabd84e96
 [[patch.unused]]
 name = "krabka-client-admin"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-client-rs?rev=1664636ac2bae7884e584515110effbde4240201#1664636ac2bae7884e584515110effbde4240201"
+source = "git+https://github.com/krabka-io/krabka-client-rs?rev=7773d08bca29c7c837f6653d9ab069b19f821da7#7773d08bca29c7c837f6653d9ab069b19f821da7"
 
 [[patch.unused]]
 name = "krabka-format"
