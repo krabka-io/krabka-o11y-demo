@@ -10,7 +10,7 @@
       "gridPos": {"h": 10, "w": 24, "x": 0, "y": 0},
       "id": 1,
       "options": {},
-      "targets": [{"datasource": {"type": "tempo", "uid": "krabka-tempo"}, "query": "{ name = `produce_order` || name = `process_order` || name = `stream_category_count` }", "queryType": "traceql", "refId": "A"}],
+      "targets": [{"datasource": {"type": "tempo", "uid": "krabka-tempo"}, "query": "{ name = `orders publish` || name = `orders process` || name = `stream_category_count` }", "queryType": "traceql", "refId": "A"}],
       "title": "Distributed order traces",
       "type": "traces"
     },

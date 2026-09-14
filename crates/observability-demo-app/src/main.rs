@@ -1102,17 +1102,16 @@ async fn run_produce(
                     }
                     Ok(Err(error)) => {
                         metrics.record_error(PipelineErrorKind::ProducerSend);
-                        tracing::Span::current().record("otel.status_code", "ERROR");
                         tracing::warn!(attempt, error = %error, "producer send failed; retrying");
                     }
                     Err(error) => {
                         metrics.record_error(PipelineErrorKind::ProducerSend);
-                        tracing::Span::current().record("otel.status_code", "ERROR");
                         tracing::warn!(attempt, error = %error, "producer delivery failed; retrying");
                     }
                 }
             }
             if !sent {
+                tracing::Span::current().record("otel.status_code", "ERROR");
                 tracing::error!("producer send failed after three attempts");
                 return Ok::<(), BoxError>(());
             }

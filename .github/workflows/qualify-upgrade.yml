@@ -51,7 +51,10 @@ jobs:
           docker compose down -v --remove-orphans
           docker compose up -d --wait --wait-timeout 600
           KRABKA_SMOKE_TARGETS="ready metrics logs traces cross-signal profiles gres" ./smoke.sh
-          curl -fsS -H 'X-Scope-OrgID: demo' 'http://127.0.0.1:9090/api/v1/query?query=sum(krabka_demo_orders_processed_total)' >qualification-artifacts/upgrade/before.json
+          curl -fsS -G -H 'X-Scope-OrgID: demo' \
+            --data-urlencode 'query=sum(krabka_demo_orders_processed_total)' \
+            'http://127.0.0.1:9090/api/v1/query' >qualification-artifacts/upgrade/before.json
+          jq -e '.data.result[0].value[0] and .data.result[0].value[1]' qualification-artifacts/upgrade/before.json >/dev/null
           docker compose stop
       - name: upgrade in place and verify continuity
         working-directory: demo/observability
@@ -61,10 +64,14 @@ jobs:
           set -euo pipefail
           docker compose up -d --wait --wait-timeout 600
           KRABKA_SMOKE_TARGETS="ready metrics logs traces cross-signal profiles gres" ./smoke.sh
-          curl -fsS -H 'X-Scope-OrgID: demo' 'http://127.0.0.1:9090/api/v1/query?query=sum(krabka_demo_orders_processed_total)' >qualification-artifacts/upgrade/after.json
+          retained_time="$(jq -r '.data.result[0].value[0]' qualification-artifacts/upgrade/before.json)"
+          curl -fsS -G -H 'X-Scope-OrgID: demo' \
+            --data-urlencode 'query=sum(krabka_demo_orders_processed_total)' \
+            --data-urlencode "time=${retained_time}" \
+            'http://127.0.0.1:9090/api/v1/query' >qualification-artifacts/upgrade/after.json
           before="$(jq -r '.data.result[0].value[1] // 0' qualification-artifacts/upgrade/before.json)"
           after="$(jq -r '.data.result[0].value[1] // 0' qualification-artifacts/upgrade/after.json)"
-          awk -v before="${before}" -v after="${after}" 'BEGIN {exit !(after >= before)}'
+          test "${after}" = "${before}"
           ./check-services.sh >qualification-artifacts/upgrade/services.txt
       - name: injected failure and rollback
         working-directory: demo/observability

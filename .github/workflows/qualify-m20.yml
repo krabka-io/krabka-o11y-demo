@@ -24,6 +24,8 @@ jobs:
     env:
       KRABKA_PLATFORM: linux/amd64
       KRABKA_REVISION: ${{ github.sha }}
+      # Hosted runners can need more than 300 s for a cold cross-signal trace.
+      KRABKA_SMOKE_TIMEOUT_SECONDS: "600"
       # The long-running services that qualification starts, with the
       # long-running services they depend on. check-services.sh fails when one
       # of them has no container, exits, or restarts.
@@ -57,9 +59,6 @@ jobs:
         env:
           KRABKA_QUALIFICATION_ARTIFACT_DIR: qualification-artifacts/run
           KRABKA_SMOKE_TARGETS: ready metrics logs traces cross-signal profiles gres demo-produce demo-stream demo-consume
-          # On a hosted runner, the first cross-signal trace can arrive more
-          # than 300 s after a cold start (run 34858123239).
-          KRABKA_SMOKE_TIMEOUT_SECONDS: "600"
         run: ./qualify-failover.sh
       - name: second cold start
         working-directory: demo/observability

@@ -19,17 +19,6 @@
   },
   "customManagers": [
     {
-      "description": "Only digest-pinned GitHub Actions patch updates may merge automatically after required checks pass.",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchUpdateTypes": [
-        "digest",
-        "patch"
-      ],
-      "automerge": true
-    },
-    {
       "customType": "regex",
       "description": "The rules_rs toolchain version in MODULE.bazel. Named and sourced exactly as the built-in rust-toolchain manager names rust-toolchain.toml, so the two group.",
       "managerFilePatterns": [
@@ -55,6 +44,17 @@
     }
   ],
   "packageRules": [
+    {
+      "description": "Only digest-pinned GitHub Actions patch updates may merge automatically after required checks pass.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "digest",
+        "patch"
+      ],
+      "automerge": true
+    },
     {
       "description": "Pinned by `git_override` to a commit past v0.0.1, for the `//mutants:config` support the sweep needs. The `bazel_dep` version beside it selects nothing, and the Bazel Central Registry does not serve this module at all -- a registry bump here would be a no-op that reads like a real one.",
       "matchManagers": [

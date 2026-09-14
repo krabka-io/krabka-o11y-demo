@@ -55,7 +55,10 @@ jobs:
       - name: checksum evidence
         if: always()
         working-directory: demo/observability/qualification-artifacts/candidate
-        run: find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum >SHA256SUMS
+        run: |
+          checksum_file="$(mktemp)"
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum >"${checksum_file}"
+          mv "${checksum_file}" SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

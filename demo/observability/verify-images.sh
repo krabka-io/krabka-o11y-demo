@@ -9,10 +9,19 @@ for image in ${images}; do
     *@sha256:*) ;;
     *) echo "not digest pinned: ${image}" >&2; status=1; continue ;;
   esac
-  platforms="$(docker buildx imagetools inspect "${image}" --raw | jq -r '
-    if .manifests then .manifests[].platform | .os + "/" + .architecture
-    else empty end')"
-  if [ -n "${platforms}" ] && ! printf '%s\n' "${platforms}" | grep -Fxq "${platform}"; then
+  inspection="$(docker buildx imagetools inspect "${image}" --format '{{json .}}')"
+  platforms="$(printf '%s\n' "${inspection}" | jq -r '
+    if .manifest.manifests then
+      .manifest.manifests[].platform | .os + "/" + .architecture
+    elif .image.os and .image.architecture then
+      .image.os + "/" + .image.architecture
+    else
+      empty
+    end')"
+  if [ -z "${platforms}" ]; then
+    echo "cannot determine the published platform for ${image}" >&2
+    status=1
+  elif ! printf '%s\n' "${platforms}" | grep -Fxq "${platform}"; then
     echo "${image} does not publish ${platform}" >&2
     status=1
   else

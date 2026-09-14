@@ -78,8 +78,28 @@ jobs:
             exit 0
           fi
 
+          # Select one package from this source before changing the manifest.
+          # `cargo update -p` then moves only that git source and the packages
+          # coupled to it, preserving unrelated versions in Cargo.lock.
+          package="$(python3 - "${SIBLING}" <<'PY'
+          import sys
+          import tomllib
+
+          sibling = sys.argv[1]
+          with open("Cargo.lock", "rb") as lock_file:
+              packages = tomllib.load(lock_file)["package"]
+          names = sorted({
+              package["name"]
+              for package in packages
+              if f"github.com/krabka-io/{sibling}" in package.get("source", "")
+          })
+          if not names:
+              raise SystemExit(f"no locked package found for {sibling}")
+          print(names[0])
+          PY
+          )"
           sed -i "s|${current}|${latest}|g" Cargo.toml
-          cargo generate-lockfile
+          cargo update --package "${package}" --precise "${latest}"
 
           {
             echo "changed=true"
