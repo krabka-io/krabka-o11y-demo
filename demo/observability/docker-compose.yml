@@ -618,14 +618,14 @@ services:
   # tenant's range layout and its SCRAM verifier, so it is also what sets the
   # SQL password. Idempotent: `describe` succeeds once the record exists.
   gres-setup:
-    image: ${KRABKA_DEMO_IMAGE:-ghcr.io/robot-head/crabka-demo@sha256:1fa96b3322ae0f29dec976d2764e1d94ca4b3edc854552868b9f0f4a6b8ab2db}
+    image: ${KRABKA_CLI_IMAGE:-ghcr.io/krabka-io/krabka-cli@sha256:6893ddac70cfd48944755719e2e94ca4468827cc641f0994e0d72fe479e33a0d}
     <<: *setup-res
     restart: "no"
     entrypoint:
       - /bin/sh
       - -c
       - >
-        ${KRABKA_CLI_BIN:-crabka} gres describe --bootstrap broker:9092 --name demo >/dev/null 2>&1 && exit 0; printf '%s' "${KRABKA_GRES_PASSWORD:-demo}" | ${KRABKA_CLI_BIN:-crabka} gres create-tenant --bootstrap broker:9092 --name demo --user demo --password-stdin
+        ${KRABKA_CLI_BIN:-krabka} gres describe --bootstrap broker:9092 --name demo >/dev/null 2>&1 && exit 0; printf '%s' "${KRABKA_GRES_PASSWORD:-demo}" | ${KRABKA_CLI_BIN:-krabka} gres create-tenant --bootstrap broker:9092 --name demo --user demo --password-stdin
     depends_on:
       broker: {condition: service_healthy}
 
