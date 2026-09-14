@@ -174,9 +174,11 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
     let config = alloy_config();
     assert2::assert!(config.contains("logs    = [otelcol.exporter.otlphttp.logs.input]"));
     assert2::assert!(config.contains("endpoint = \"http://logs-distributor:3100/otlp\""));
-    assert2::assert!(config.contains("prometheus.relabel \"krabka_namespace\""));
-    assert2::assert!(config.contains("regex         = \"crabka_demo_(.*)\""));
-    assert2::assert!(config.contains("replacement   = \"krabka_demo_$1\""));
+    let krabka_scrape = balanced_block_after_marker(&config, "prometheus.scrape \"krabka\" {");
+    assert2::assert!(
+        krabka_scrape.contains("forward_to      = [prometheus.remote_write.krabka.receiver]")
+    );
+    assert2::assert!(!config.contains("crabka_demo_"));
 
     let qualification = observability_script("qualify-failover.sh");
     for needle in [
@@ -210,7 +212,7 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
     assert2::assert!(smoke.contains("name = \"orders process\""));
     assert2::assert!(smoke.contains("--data-urlencode 'start=0'"));
     assert2::assert!(smoke.contains("--data-urlencode \"end=$(date +%s)\""));
-    assert2::assert!(smoke.contains("grep -Eq '(krabka|crabka)_demo_'"));
+    assert2::assert!(smoke.contains("grep -q 'krabka_demo_'"));
     assert2::assert!(smoke.contains("unknown smoke target: $target"));
     assert2::assert!(smoke.contains("*) return 1 ;;"));
     let workflow = std::fs::read_to_string(repo_root().join(".github/workflows/qualify-m20.yml"))
@@ -233,8 +235,8 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
     let gres_dashboard = dashboard("krabka-gres-traces.json");
     assert2::assert!(gres_dashboard.contains("crabka_pgexec::exec=trace"));
     for setting in [
-        "KRABKA_DEMO_IMAGE=ghcr.io/robot-head/crabka-demo:latest",
-        "KRABKA_SCHEMA_REGISTRY_BIN=krabka-schema-registry",
+        "KRABKA_DEMO_IMAGE=krabka-io/krabka-o11y-demo:dev",
+        "KRABKA_SCHEMA_REGISTRY_IMAGE=ghcr.io/krabka-io/krabka-schema-registry:dev",
         "KRABKA_CLI_BIN=krabka",
         "KRABKA_GRES_IMAGE=krabka-io/gres:dev",
     ] {
@@ -505,70 +507,44 @@ fn qualification_images_are_explicit() {
         "the published bootstrap should enforce the six-topic contract"
     );
     check!(
-        compose.contains("KRABKA_DEMO_IMAGE:-ghcr.io/robot-head/crabka-demo@sha256:1fa96b3322ae0f29dec976d2764e1d94ca4b3edc854552868b9f0f4a6b8ab2db"),
-        "the legacy workload image should be immutable by default"
+        compose.contains("KRABKA_DEMO_IMAGE:-ghcr.io/krabka-io/krabka-o11y-demo@sha256:b79f9dbe16d30671073ca8a40df2fb60b1faab898bdb2d8793d173f3e2d1111f"),
+        "the demo roles should use this repository's immutable published image"
     );
-    for bin_override in [
-        "KRABKA_SCHEMA_REGISTRY_BIN:-crabka-schema-registry",
-        "KRABKA_CLI_BIN:-krabka",
+    check!(
+        compose.contains("KRABKA_SCHEMA_REGISTRY_IMAGE:-ghcr.io/krabka-io/krabka-schema-registry@sha256:ad106d2b623b7a39fc0566ecbff077a662b544314e2de61357a381e6969cbef9"),
+        "the schema registry should use one overridable immutable published image"
+    );
+    check!(
+        !compose.contains("robot-head"),
+        "no service should use an image from the archived monorepo"
+    );
+    check!(
+        compose.contains("KRABKA_CLI_BIN:-krabka"),
+        "local rebuilt CLI images should be able to override the executable"
+    );
+    for entrypoint in [
+        "KRABKA_GRES_BIN",
+        "KRABKA_SCHEMA_REGISTRY_BIN",
+        "\"observability-demo-app\"",
     ] {
         check!(
-            compose.contains(bin_override),
-            "local rebuilt images should be able to override {bin_override}"
+            !compose.contains(entrypoint),
+            "commands should not repeat the published image entrypoint {entrypoint}"
         );
     }
+    let gres = compose_service_block(&compose, "gres");
     check!(
-        !compose.contains("KRABKA_GRES_BIN"),
-        "the Gres command should not repeat the published image entrypoint"
+        gres.contains("CRABKA_OTLP_HEARTBEAT_INTERVAL: \"${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}\""),
+        "the pre-rename Gres image should preserve the heartbeat override"
     );
     check!(
-        compose
-            .contains("CRABKA_OTLP_HEARTBEAT_INTERVAL: \"${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}\""),
-        "legacy services should preserve the heartbeat override"
+        gres.contains("CRABKA_OTLP_SQL_TEXT: \"${KRABKA_GRES_OTLP_SQL_TEXT:-false}\""),
+        "the pre-rename Gres image should preserve the SQL text opt-in"
     );
     check!(
-        compose.contains("CRABKA_OTLP_SQL_TEXT: \"${KRABKA_GRES_OTLP_SQL_TEXT:-false}\""),
-        "legacy GRES should preserve the SQL text opt-in"
+        !compose.contains("CRABKA_DEMO_"),
+        "the demo image reads only the KRABKA_DEMO_ settings"
     );
-    for setting in [
-        "SCHEMA_FETCH_RETRY_INITIAL_BACKOFF",
-        "SCHEMA_FETCH_RETRY_MAX_BACKOFF",
-        "ORDERS_PER_SEC",
-        "STREAMS_BROKER_DNS_TIMEOUT",
-        "STREAMS_FETCH_MIN",
-        "STREAMS_POLL_INTERVAL",
-        "STREAMS_COMMIT_INTERVAL",
-        "STREAMS_REBALANCE_TIMEOUT",
-        "STREAMS_LEAVE_HEARTBEAT_TIMEOUT",
-        "STREAMS_JOIN_RETRY_BACKOFF",
-        "STREAMS_INTERACTIVE_QUERY_QUEUE_CAPACITY",
-        "STREAMS_STATE_STORE_CACHE_MAX",
-        "CONSUMER_LEAVE_GROUP_TIMEOUT",
-        "CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL",
-        "CONSUMER_STARTUP_ATTEMPT_TIMEOUT",
-        "CONSUMER_STARTUP_DEADLINE",
-        "CONSUMER_STARTUP_INITIAL_BACKOFF",
-        "CONSUMER_STARTUP_MAX_BACKOFF",
-        "CONSUMER_COORDINATOR_RETRY_TIMEOUT",
-        "CONSUMER_COORDINATOR_INITIAL_BACKOFF",
-        "CONSUMER_COORDINATOR_MAX_BACKOFF",
-        "CONSUMER_FETCH_MIN",
-        "CONSUMER_FETCH_MAX",
-        "CONSUMER_FETCH_PARTITION_MAX",
-        "CONSUMER_SESSION_TIMEOUT",
-        "CONSUMER_REBALANCE_TIMEOUT",
-        "CONSUMER_HEARTBEAT_INTERVAL",
-        "CONSUMER_REQUEST_TIMEOUT",
-        "CONSUMER_AUTO_OFFSET_RESET",
-        "CONSUMER_ISOLATION_LEVEL",
-        "CONSUMER_ASSIGNOR",
-    ] {
-        let alias = format!("CRABKA_DEMO_{setting}: \"${{KRABKA_DEMO_{setting}");
-        check!(
-            compose.contains(&alias),
-            "legacy workload should preserve {setting} overrides"
-        );
-    }
 }
 
 #[test]
