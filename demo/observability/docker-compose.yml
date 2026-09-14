@@ -68,7 +68,9 @@ x-o11y-image: &o11y-image
   platform: ${KRABKA_PLATFORM:-linux/arm64}
   restart: unless-stopped
   healthcheck:
-    test: ["CMD", "/bin/sh", "-c", "test -r /proc/1/stat"]
+    # The release image is distroless but every role image includes this
+    # executable. Invoking its parser verifies the shared image is runnable.
+    test: ["CMD", "krabka-metrics", "--help"]
     interval: 10s
     timeout: 3s
     retries: 30
