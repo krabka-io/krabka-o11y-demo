@@ -124,7 +124,6 @@ apko build packaging/apko/krabka-demo.yaml \
 docker load < krabka-demo.tar
 export KRABKA_DEMO_IMAGE=ghcr.io/robot-head/crabka-demo:latest
 export KRABKA_SCHEMA_REGISTRY_BIN=krabka-schema-registry
-export KRABKA_CLI_BIN=krabka
 
 cd ../gres
 case "$(uname -m)" in
@@ -134,6 +133,17 @@ case "$(uname -m)" in
 esac
 bazel run -c opt --platforms="${gres_platform}" //packaging/apko:load
 export KRABKA_GRES_IMAGE=krabka-io/gres:dev
+
+cd ../krabka-cli
+case "$(uname -m)" in
+  arm64|aarch64) cli_platform=//:linux_arm64 ;;
+  x86_64|amd64) cli_platform=//:linux_amd64 ;;
+  *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+bazel run -c opt --platforms="${cli_platform}" //packaging/apko:load
+export KRABKA_CLI_IMAGE=krabka-io/krabka-cli:dev
+export KRABKA_CLI_BIN=krabka
+
 cd ../krabka-o11y-demo
 cd demo/observability && docker compose up -d
 ```
@@ -179,9 +189,10 @@ Traces** dashboard is the quickest way to start. TraceQL
 `{ resource.service.name = "gres" }` in Explore also works.
 
 `gres` runs from the separately published `ghcr.io/krabka-io/gres` image. The
-one-shot `gres-setup` service still uses the demo image because it needs the
-`crabka gres` tenant-management command. If setup reports `unrecognized
-subcommand 'gres'`, [rebuild the demo image from source](#rebuild-from-source).
+one-shot `gres-setup` service uses the separately published multi-platform
+`ghcr.io/krabka-io/krabka-cli` image and its built-in `krabka gres`
+tenant-management command. Override it with `KRABKA_CLI_IMAGE` when testing a
+local CLI image; `KRABKA_CLI_BIN` can override the executable name.
 
 One statement produces a waterfall similar to this:
 

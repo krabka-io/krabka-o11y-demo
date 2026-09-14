@@ -486,6 +486,10 @@ fn qualification_images_are_explicit() {
         compose.contains("KRABKA_GRES_IMAGE:-ghcr.io/krabka-io/gres@sha256:4117982fa13ab02d86e76ec70f267acfe884fa3c99befe1bdc690b9d5ea0984a"),
         "gres should use one overridable immutable published image"
     );
+    check!(
+        compose.contains("KRABKA_CLI_IMAGE:-ghcr.io/krabka-io/krabka-cli@sha256:6893ddac70cfd48944755719e2e94ca4468827cc641f0994e0d72fe479e33a0d"),
+        "gres setup should use one overridable immutable multiarch CLI image"
+    );
     for executable in ["/usr/bin/krabka-format", "/usr/bin/krabka-guard"] {
         check!(
             compose.contains(executable),
@@ -506,7 +510,7 @@ fn qualification_images_are_explicit() {
     );
     for bin_override in [
         "KRABKA_SCHEMA_REGISTRY_BIN:-crabka-schema-registry",
-        "KRABKA_CLI_BIN:-crabka",
+        "KRABKA_CLI_BIN:-krabka",
     ] {
         check!(
             compose.contains(bin_override),
