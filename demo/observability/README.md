@@ -43,7 +43,7 @@ block-builders flush their first blocks. Allow about 3 to 5 minutes on a cold
 start. The queriers refresh their indexes automatically.
 
 Tune the load with `KRABKA_DEMO_ORDERS_PER_SEC` on the `demo-produce` service.
-The default is `50`, and `0` pauses production. Tune the SQL load with
+The default is `50Hz`, and `0` pauses production. Tune the SQL load with
 `KRABKA_GRES_WORKLOAD_INTERVAL` on `gres-workload`, which defaults to `5`
 seconds between passes. Lower both values on a constrained host. Plan for
 **≥ 8 GB** of Docker memory, because the demo runs about 23 containers.

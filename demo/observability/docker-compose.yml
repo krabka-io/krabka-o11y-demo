@@ -504,7 +504,7 @@ services:
       KRABKA_DEMO_REGISTRY: http://schema-registry:8081
       KRABKA_DEMO_SCHEMA_FETCH_RETRY_INITIAL_BACKOFF: "${KRABKA_DEMO_SCHEMA_FETCH_RETRY_INITIAL_BACKOFF:-10ms}"
       KRABKA_DEMO_SCHEMA_FETCH_RETRY_MAX_BACKOFF: "${KRABKA_DEMO_SCHEMA_FETCH_RETRY_MAX_BACKOFF:-1s}"
-      KRABKA_DEMO_ORDERS_PER_SEC: "${KRABKA_DEMO_ORDERS_PER_SEC:-50}"
+      KRABKA_DEMO_ORDERS_PER_SEC: "${KRABKA_DEMO_ORDERS_PER_SEC:-50Hz}"
     depends_on:
       topic-setup: {condition: service_completed_successfully}
       schema-registry-ready: {condition: service_completed_successfully}
