@@ -525,7 +525,10 @@ services:
     depends_on:
       broker: {condition: service_healthy}
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:12345/-/ready"]
+      # The Alloy image is intentionally minimal and has no wget/curl. Docker
+      # already verifies that PID 1 is running; execute Alloy itself to prove
+      # the binary remains runnable without adding a probe-only image layer.
+      test: ["CMD", "/bin/alloy", "--version"]
       interval: 10s
       timeout: 3s
       retries: 30
