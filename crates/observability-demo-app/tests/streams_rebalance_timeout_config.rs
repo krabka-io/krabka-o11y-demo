@@ -13,8 +13,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_STREAMS_REBALANCE_TIMEOUT", "37s")
         .output()
         .expect("run demo");
-    assert!(!environment.status.success());
-    assert!(
+    observability_demo_app::check!(!environment.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&environment.stderr)
             .contains("--streams-rebalance-timeout (37s) is only valid with --role stream")
     );
@@ -24,8 +24,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_STREAMS_REBALANCE_TIMEOUT", "37s")
         .output()
         .expect("run demo");
-    assert!(!cli.status.success());
-    assert!(
+    observability_demo_app::check!(!cli.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&cli.stderr)
             .contains("--streams-rebalance-timeout (41s) is only valid with --role stream")
     );
@@ -38,21 +38,25 @@ fn invalid_values_fail_early_and_help_lists_the_flag_once() {
         .env("KRABKA_DEMO_STREAMS_REBALANCE_TIMEOUT", "0ms")
         .output()
         .expect("run demo");
-    assert!(!zero.status.success());
-    assert!(String::from_utf8_lossy(&zero.stderr).contains("invalid value '0ms'"));
+    observability_demo_app::check!(!zero.status.success());
+    observability_demo_app::check!(
+        String::from_utf8_lossy(&zero.stderr).contains("invalid value '0ms'")
+    );
 
     let overflow = demo()
         .args(["--role", "stream"])
         .env("KRABKA_DEMO_STREAMS_REBALANCE_TIMEOUT", "2147483648ms")
         .output()
         .expect("run demo");
-    assert!(!overflow.status.success());
-    assert!(String::from_utf8_lossy(&overflow.stderr).contains("streams rebalance timeout"));
+    observability_demo_app::check!(!overflow.status.success());
+    observability_demo_app::check!(
+        String::from_utf8_lossy(&overflow.stderr).contains("streams rebalance timeout")
+    );
 
     let help = demo().arg("--help").output().expect("help");
-    assert!(help.status.success());
+    observability_demo_app::check!(help.status.success());
     let help = String::from_utf8(help.stdout).expect("UTF-8 help");
-    assert_eq!(
+    observability_demo_app::check_eq!(
         help.split_whitespace()
             .filter(|token| *token == "--streams-rebalance-timeout")
             .count(),

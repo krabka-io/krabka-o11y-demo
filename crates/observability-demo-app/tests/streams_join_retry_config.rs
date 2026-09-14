@@ -13,8 +13,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF", "37ms")
         .output()
         .expect("run demo");
-    assert!(!environment.status.success());
-    assert!(
+    observability_demo_app::check!(!environment.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&environment.stderr)
             .contains("--streams-join-retry-backoff (37ms) is only valid with --role stream")
     );
@@ -24,8 +24,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF", "37ms")
         .output()
         .expect("run demo");
-    assert!(!cli.status.success());
-    assert!(
+    observability_demo_app::check!(!cli.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&cli.stderr)
             .contains("--streams-join-retry-backoff (41ms) is only valid with --role stream")
     );
@@ -38,13 +38,15 @@ fn zero_fails_early_and_help_lists_the_flag_once() {
         .env("KRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF", "0ms")
         .output()
         .expect("run demo");
-    assert!(!zero.status.success());
-    assert!(String::from_utf8_lossy(&zero.stderr).contains("invalid value '0ms'"));
+    observability_demo_app::check!(!zero.status.success());
+    observability_demo_app::check!(
+        String::from_utf8_lossy(&zero.stderr).contains("invalid value '0ms'")
+    );
 
     let help = demo().arg("--help").output().expect("help");
-    assert!(help.status.success());
+    observability_demo_app::check!(help.status.success());
     let help = String::from_utf8(help.stdout).expect("UTF-8 help");
-    assert_eq!(
+    observability_demo_app::check_eq!(
         help.split_whitespace()
             .filter(|token| *token == "--streams-join-retry-backoff")
             .count(),

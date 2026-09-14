@@ -3,8 +3,8 @@ set -eu
 
 deadline=$(($(date +%s) + ${KRABKA_SMOKE_TIMEOUT_SECONDS:-300}))
 pending=${KRABKA_SMOKE_TARGETS:-"ready metrics logs traces cross-signal profiles gres demo-produce demo-stream demo-consume"}
-# The observability roles have no Docker healthcheck, because the image has no
-# HTTP client. The `ready` target asks each role for `/ready` on its admin port.
+# The `ready` target checks the live `/ready` endpoint in addition to each
+# role's minimal executable Docker healthcheck.
 ready_services=${KRABKA_SMOKE_READY_SERVICES:-"metrics-distributor metrics-block-builder metrics-compactor metrics-querier traces-distributor traces-block-builder traces-metrics-generator traces-querier logs-distributor logs-block-builder logs-querier profiles-distributor profiles-block-builder profiles-querier"}
 not_ready=""
 for target in $pending; do

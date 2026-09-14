@@ -10,8 +10,6 @@ use std::{
     process::Command,
 };
 
-use assert2::assert;
-
 const O11Y_IMAGE: &str = "ghcr.io/krabka-io/krabka-o11y@sha256:3032e3ba2c11a6c014e499edabd7fb6f8939f9d7d40ae659bd4dfbdad1051efa";
 const O11Y_DIGEST: &str = "sha256:3032e3ba2c11a6c014e499edabd7fb6f8939f9d7d40ae659bd4dfbdad1051efa";
 
@@ -413,7 +411,7 @@ fn run_case(case_index: usize, case: &Case) -> (i32, String) {
         command.env("KRABKA_SMOKE_SERVICES", expected);
     }
     let output = command.output().expect("run check-services.sh");
-    assert!(
+    observability_demo_app::check!(
         output.stderr.is_empty(),
         "{}: {}",
         case.name,
@@ -429,7 +427,7 @@ fn run_case(case_index: usize, case: &Case) -> (i32, String) {
 fn check_services_reports_each_service_that_is_not_in_its_expected_state() {
     for (index, case) in cases().iter().enumerate() {
         let actual = run_case(index, case);
-        assert!(
+        observability_demo_app::check!(
             actual == (case.status, case.report.clone()),
             "{}",
             case.name

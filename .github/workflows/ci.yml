@@ -19,6 +19,26 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
+  cargo:
+    name: cargo · build · nextest · clippy · deny
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master 2026-09-14
+        with:
+          toolchain: "1.97.1"
+          components: clippy
+      - uses: taiki-e/install-action@1ee706eb04986370fc60419ba172594c51067f29 # v2.62.58
+        with:
+          tool: cargo-nextest@0.9.114,cargo-deny@0.19.0
+      - run: cargo build --workspace --all-targets --all-features --locked
+      - run: cargo nextest run --workspace --all-features --locked
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo deny check
+      - name: repository contracts
+        run: python3 tools/check-repository.py
   # Build, test, lint and format. The Aspect CLI narrows each of these to what
   # the change actually touched; `bazel build|test //...` is the equivalent for
   # anyone without the CLI, and is what the nightly job runs.
@@ -28,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           # Change detection needs the merge base, not just the tip.
           fetch-depth: 0
@@ -64,7 +84,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: aspect-build/setup-aspect@2306377a61c45954ab2df7c7311698b109364352 # v2026.26.9
         with:
           aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
@@ -72,7 +92,7 @@ jobs:
           disk-cache: ${{ github.workflow }}-coverage
           repository-cache: true
       - run: bazel coverage //crates/...
-      - uses: codecov/codecov-action@v7
+      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: bazel-out/_coverage/_coverage_report.dat
@@ -88,15 +108,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: aspect-build/setup-aspect@2306377a61c45954ab2df7c7311698b109364352 # v2026.26.9
         with:
           aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
           bazelisk-cache: true
           disk-cache: ${{ github.workflow }}-docs
           repository-cache: true
-      - run: bazel build $(bazel query 'kind("rust_doc rule", //crates/...)')
-      - uses: actions/upload-artifact@v4
+      - run: |
+          mapfile -t doc_targets < <(bazel query 'kind("rust_doc rule", //crates/...)')
+          bazel build "${doc_targets[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: rustdoc
           path: bazel-bin/crates/**/*.rustdoc
@@ -124,7 +146,7 @@ jobs:
     outputs:
       crates: ${{ steps.select.outputs.crates }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: aspect-build/setup-aspect@2306377a61c45954ab2df7c7311698b109364352 # v2026.26.9
         with:
           aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
@@ -156,11 +178,20 @@ jobs:
       matrix:
         crate: ${{ fromJSON(needs.mutants-select.outputs.crates) }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: aspect-build/setup-aspect@2306377a61c45954ab2df7c7311698b109364352 # v2026.26.9
         with:
           aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
           bazelisk-cache: true
           disk-cache: ${{ github.workflow }}-mutants
           repository-cache: true
-      - run: bazel test ${{ matrix.crate.target }}
+      - name: mutation sweep
+        run: |
+          set -o pipefail
+          bazel test "${{ matrix.crate.target }}" --test_output=all 2>&1 | tee mutation-summary.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: mutants-${{ matrix.crate.name }}
+          path: mutation-summary.txt
+          if-no-files-found: error

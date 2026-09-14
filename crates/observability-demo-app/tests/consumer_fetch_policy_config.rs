@@ -13,8 +13,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_CONSUMER_FETCH_MIN", "3B")
         .output()
         .expect("run demo");
-    assert!(!environment.status.success());
-    assert!(
+    observability_demo_app::check!(!environment.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&environment.stderr)
             .contains("--consumer-fetch-min (3B) is only valid with --role consume")
     );
@@ -24,8 +24,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_CONSUMER_FETCH_MIN", "3B")
         .output()
         .expect("run demo");
-    assert!(!cli.status.success());
-    assert!(
+    observability_demo_app::check!(!cli.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&cli.stderr)
             .contains("--consumer-fetch-min (5B) is only valid with --role consume")
     );
@@ -37,8 +37,10 @@ fn invalid_values_and_ordering_fail_before_external_io() {
         .args(["--role", "consume", "--consumer-fetch-min", "0B"])
         .output()
         .expect("run demo");
-    assert!(!zero.status.success());
-    assert!(String::from_utf8_lossy(&zero.stderr).contains("invalid value '0B'"));
+    observability_demo_app::check!(!zero.status.success());
+    observability_demo_app::check!(
+        String::from_utf8_lossy(&zero.stderr).contains("invalid value '0B'")
+    );
 
     let ordering = demo()
         .args([
@@ -51,8 +53,8 @@ fn invalid_values_and_ordering_fail_before_external_io() {
         ])
         .output()
         .expect("run demo");
-    assert!(!ordering.status.success());
-    assert!(
+    observability_demo_app::check!(!ordering.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&ordering.stderr)
             .contains("consumer fetch min must not exceed consumer fetch max")
     );

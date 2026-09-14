@@ -1,0 +1,105 @@
+name: qualify release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to qualify
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-latest
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      KRABKA_PLATFORM: linux/${{ matrix.architecture }}
+      KRABKA_REVISION: ${{ github.sha }}
+      IMAGE: ghcr.io/krabka-io/krabka-o11y-demo
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      KRABKA_SMOKE_TIMEOUT_SECONDS: "600"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: resolve immutable multi-platform candidate
+        run: |
+          set -euo pipefail
+          ready=false
+          for attempt in $(seq 1 60); do
+            if docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{json .}}' >candidate-inspection.json 2>/dev/null &&
+              jq -e '(.manifest.manifests // [] | map(.platform.os + "/" + .platform.architecture)) as $platforms | ($platforms | index("linux/amd64")) != null and ($platforms | index("linux/arm64")) != null' candidate-inspection.json >/dev/null; then
+              ready=true
+              break
+            fi
+            echo "waiting for multi-platform image ${IMAGE}:${TAG} (attempt ${attempt}/60)"
+            sleep 30
+          done
+          test "${ready}" = true
+          jq '.manifest' candidate-inspection.json >candidate-index.json
+          digest="$(jq -r '.manifest.digest // empty' candidate-inspection.json)"
+          test -n "${digest}"
+          echo "KRABKA_DEMO_IMAGE=${IMAGE}@${digest}" >>"${GITHUB_ENV}"
+          printf '%s@%s\n' "${IMAGE}" "${digest}" >candidate-image.txt
+      - name: cold qualification
+        working-directory: demo/observability
+        run: |
+          set -euo pipefail
+          mkdir -p qualification-artifacts/cold qualification-artifacts/upgrade
+          docker compose down -v --remove-orphans
+          docker compose up -d --wait --wait-timeout 600
+          KRABKA_SMOKE_TARGETS="ready metrics logs traces cross-signal profiles gres demo-produce demo-stream demo-consume" ./smoke.sh
+          ./check-services.sh >qualification-artifacts/cold/services.txt
+          ./revision-report.sh qualification-artifacts/cold/revisions.txt
+      - name: retained-state restart and rollback drill
+        working-directory: demo/observability
+        run: |
+          set -euo pipefail
+          curl -fsS -G -H 'X-Scope-OrgID: demo' \
+            --data-urlencode 'query=sum(krabka_demo_orders_processed_total)' \
+            'http://127.0.0.1:9090/api/v1/query' >qualification-artifacts/upgrade/before.json
+          retained_time="$(jq -er '.data.result[0].value[0]' qualification-artifacts/upgrade/before.json)"
+          docker compose stop
+          docker compose up -d --wait --wait-timeout 600
+          KRABKA_SMOKE_TARGETS="ready metrics logs traces cross-signal profiles gres" ./smoke.sh
+          curl -fsS -G -H 'X-Scope-OrgID: demo' \
+            --data-urlencode 'query=sum(krabka_demo_orders_processed_total)' \
+            --data-urlencode "time=${retained_time}" \
+            'http://127.0.0.1:9090/api/v1/query' >qualification-artifacts/upgrade/after.json
+          before="$(jq -r '.data.result[0].value[1] // 0' qualification-artifacts/upgrade/before.json)"
+          after="$(jq -r '.data.result[0].value[1] // 0' qualification-artifacts/upgrade/after.json)"
+          test "${after}" = "${before}"
+          printf 'before=%s\nafter=%s\n' "${before}" "${after}" >qualification-artifacts/upgrade/retained-state.txt
+          KRABKA_DEMO_IMAGE="${IMAGE}@sha256:$(printf broken | sha256sum | cut -d' ' -f1)" docker compose up -d demo-produce >/dev/null 2>&1 && exit 1 || true
+          docker compose up -d --wait --wait-timeout 600 demo-produce
+          ./check-services.sh >qualification-artifacts/upgrade/rollback-services.txt
+      - name: checksummed evidence
+        if: always()
+        run: |
+          cp candidate-index.json candidate-image.txt demo/observability/qualification-artifacts/
+          cd demo/observability/qualification-artifacts
+          checksum_file="$(mktemp)"
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum >"${checksum_file}"
+          mv "${checksum_file}" SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: release-qualification-${{ env.TAG }}-${{ matrix.architecture }}
+          path: demo/observability/qualification-artifacts/
+          if-no-files-found: error
+      - name: stop stack
+        if: always()
+        working-directory: demo/observability
+        run: docker compose down -v --remove-orphans

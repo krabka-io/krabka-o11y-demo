@@ -21,7 +21,7 @@ use std::sync::Arc;
 use krabka_units::{Time, convert::TimeExt as _};
 use prometheus_client::{
     encoding::EncodeLabelSet,
-    metrics::{counter::Counter, family::Family, histogram::Histogram},
+    metrics::{counter::Counter, family::Family, gauge::Gauge, histogram::Histogram},
     registry::Registry,
 };
 use tokio::sync::Mutex;
@@ -51,6 +51,35 @@ pub struct StageLabel {
     pub stage: String,
 }
 
+/// Bounded failure classes emitted by the pipeline.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum PipelineErrorKind {
+    MissingValue,
+    Deserialize,
+    ProducerSend,
+}
+
+impl PipelineErrorKind {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::MissingValue => "missing_value",
+            Self::Deserialize => "deserialize",
+            Self::ProducerSend => "producer_send",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct ErrorLabel {
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct CategoryLabel {
+    pub category: String,
+}
+
 /// Cheaply-clonable bundle of demo metric handles plus the shared registry.
 #[derive(Clone)]
 pub struct DemoMetrics {
@@ -63,6 +92,9 @@ pub struct DemoMetrics {
     pub orders_processed: Family<ProcessedLabel, Counter>,
     pub process_stage_latency: Family<StageLabel, Histogram>,
     pub order_processing_latency: Histogram,
+    pub pipeline_errors: Family<ErrorLabel, Counter>,
+    pub stream_records: Counter,
+    pub stream_category_count: Family<CategoryLabel, Gauge>,
 }
 
 impl DemoMetrics {
@@ -83,6 +115,9 @@ impl DemoMetrics {
         });
         let order_processing_latency =
             Histogram::new([0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25]);
+        let pipeline_errors = Family::<ErrorLabel, Counter>::default();
+        let stream_records = Counter::default();
+        let stream_category_count = Family::<CategoryLabel, Gauge>::default();
 
         registry.register(
             "orders_produced",
@@ -114,6 +149,21 @@ impl DemoMetrics {
             "End-to-end consumer processing latency per order in seconds",
             order_processing_latency.clone(),
         );
+        registry.register(
+            "pipeline_errors",
+            "Pipeline failures by bounded error kind",
+            pipeline_errors.clone(),
+        );
+        registry.register(
+            "stream_records",
+            "Records observed by the streams topology",
+            stream_records.clone(),
+        );
+        registry.register(
+            "stream_category_count",
+            "Current streams state-store count by order category",
+            stream_category_count.clone(),
+        );
 
         Self {
             registry: Arc::new(Mutex::new(registry)),
@@ -123,7 +173,29 @@ impl DemoMetrics {
             orders_processed,
             process_stage_latency,
             order_processing_latency,
+            pipeline_errors,
+            stream_records,
+            stream_category_count,
         }
+    }
+
+    /// Record a pipeline failure without putting unbounded error text in labels.
+    pub fn record_error(&self, kind: PipelineErrorKind) {
+        self.pipeline_errors
+            .get_or_create(&ErrorLabel {
+                kind: kind.label().into(),
+            })
+            .inc();
+    }
+
+    /// Record a stream input and expose its latest state-store count.
+    pub fn record_stream(&self, category: &str, count: i64) {
+        self.stream_records.inc();
+        self.stream_category_count
+            .get_or_create(&CategoryLabel {
+                category: category.into(),
+            })
+            .set(count);
     }
 
     /// Record one produced order. The method increments the counter for the
@@ -182,7 +254,19 @@ impl Default for DemoMetrics {
 pub fn metrics_router(registry: SharedRegistry) -> axum::Router {
     axum::Router::new()
         .route("/metrics", axum::routing::get(export))
+        .route("/build", axum::routing::get(build_info))
         .with_state(registry)
+}
+
+async fn build_info() -> impl axum::response::IntoResponse {
+    let revision = std::env::var("KRABKA_REVISION").unwrap_or_else(|_| "unknown".into());
+    (
+        [("content-type", "text/plain; charset=utf-8")],
+        format!(
+            "version={} revision={revision}\n",
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
 }
 
 async fn export(
@@ -276,12 +360,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn build_route_reports_the_binary_version_and_revision() {
+        use tower::ServiceExt as _;
+
+        let response = metrics_router(DemoMetrics::new().registry)
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/build")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert2::assert!(response.status() == axum::http::StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+        assert2::assert!(body.contains(concat!("version=", env!("CARGO_PKG_VERSION"))));
+        assert2::assert!(body.contains("revision="));
+    }
+
+    #[tokio::test]
     async fn registry_has_demo_prefix_and_all_metrics() {
         let m = DemoMetrics::new();
         m.record_produced("books", "us-east", "card", 42.0, millis(2));
         m.record_stage("validate", micros(300));
         m.record_stage("fraud_check", micros(1_100));
         m.record_processed("books", "us-east", "fulfilled", millis(4));
+        m.record_error(PipelineErrorKind::MissingValue);
+        m.record_error(PipelineErrorKind::Deserialize);
+        m.record_error(PipelineErrorKind::ProducerSend);
+        m.record_stream("books", 2);
 
         let mut buf = String::new();
         let r = m.registry.lock().await;
@@ -294,6 +404,9 @@ mod tests {
             "krabka_demo_orders_processed_total",
             "krabka_demo_process_stage_latency_seconds",
             "krabka_demo_order_processing_latency_seconds",
+            "krabka_demo_pipeline_errors_total",
+            "krabka_demo_stream_records_total",
+            "krabka_demo_stream_category_count",
         ] {
             assert2::assert!(buf.contains(needle));
         }
@@ -302,6 +415,9 @@ mod tests {
         assert2::assert!(buf.contains("payment_method=\"card\""));
         assert2::assert!(buf.contains("outcome=\"fulfilled\""));
         assert2::assert!(buf.contains("stage=\"validate\""));
+        assert2::assert!(buf.contains("kind=\"missing_value\""));
+        assert2::assert!(buf.contains("kind=\"deserialize\""));
+        assert2::assert!(buf.contains("kind=\"producer_send\""));
     }
 
     #[test]

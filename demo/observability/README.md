@@ -1,5 +1,9 @@
 # Krabka full-signal observability demo
 
+Start with the [four-signal walkthrough](../../docs/walkthrough.md), consult the
+[operator guide](../../docs/operator-guide.md) for deployment and recovery, and
+use the [architecture reference](ARCHITECTURE.md) to follow each data path.
+
 One `docker compose up` command starts Grafana over Krabka's four observability
 backends: metrics, traces, logs, and profiles. Krabka exports all four of its own
 signals into those backends. An instrumented `krabka-client-streams` orders

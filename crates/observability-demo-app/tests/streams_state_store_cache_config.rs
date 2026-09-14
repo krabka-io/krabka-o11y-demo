@@ -13,8 +13,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX", "37B")
         .output()
         .expect("run demo");
-    assert!(!environment.status.success());
-    assert!(
+    observability_demo_app::check!(!environment.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&environment.stderr)
             .contains("--streams-state-store-cache-max (37B) is only valid with --role stream")
     );
@@ -29,8 +29,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX", "37B")
         .output()
         .expect("run demo");
-    assert!(!cli.status.success());
-    assert!(
+    observability_demo_app::check!(!cli.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&cli.stderr)
             .contains("--streams-state-store-cache-max (41B) is only valid with --role stream")
     );
@@ -43,24 +43,26 @@ fn negative_fails_early_zero_is_parseable_and_help_lists_the_flag_once() {
         .env("KRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX", "-1B")
         .output()
         .expect("run demo");
-    assert!(!negative.status.success());
-    assert!(String::from_utf8_lossy(&negative.stderr).contains("must be non-negative"));
+    observability_demo_app::check!(!negative.status.success());
+    observability_demo_app::check!(
+        String::from_utf8_lossy(&negative.stderr).contains("must be non-negative")
+    );
 
     let zero = demo()
         .args(["--role", "produce"])
         .env("KRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX", "0B")
         .output()
         .expect("run demo");
-    assert!(!zero.status.success());
-    assert!(
+    observability_demo_app::check!(!zero.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&zero.stderr)
             .contains("--streams-state-store-cache-max (0B) is only valid with --role stream")
     );
 
     let help = demo().arg("--help").output().expect("help");
-    assert!(help.status.success());
+    observability_demo_app::check!(help.status.success());
     let help = String::from_utf8(help.stdout).expect("UTF-8 help");
-    assert_eq!(
+    observability_demo_app::check_eq!(
         help.split_whitespace()
             .filter(|token| *token == "--streams-state-store-cache-max")
             .count(),

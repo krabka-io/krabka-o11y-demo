@@ -88,6 +88,9 @@ prometheus.scrape "krabka" {
 		{__address__ = "demo-produce:9404", job = "demo-produce"},
 		{__address__ = "demo-stream:9404", job = "demo-stream"},
 		{__address__ = "demo-consume:9404", job = "demo-consume"},
+		{__address__ = "schema-registry:9404", job = "schema-registry"},
+		{__address__ = "alloy:12345", job = "alloy"},
+		{__address__ = "grafana:3000", job = "grafana"},
 	]
 	scrape_interval = "15s"
 	forward_to      = [prometheus.remote_write.krabka.receiver]
@@ -323,38 +326,9 @@ pyroscope.scrape "trace_cpu" {
 	forward_to = [pyroscope.write.krabka.receiver]
 }
 
-pyroscope.scrape "trace_block_builder_cpu" {
-	targets = [
-		{__address__ = "traces-block-builder:9404", service_name = "traces-block-builder"},
-	]
-	scrape_interval          = "60s"
-	scrape_timeout           = "40s"
-	delta_profiling_duration = "30s"
-
-	profiling_config {
-		profile.process_cpu {
-			enabled = true
-		}
-
-		profile.memory {
-			enabled = false
-		}
-
-		profile.goroutine {
-			enabled = false
-		}
-
-		profile.block {
-			enabled = false
-		}
-
-		profile.mutex {
-			enabled = false
-		}
-	}
-	forward_to = [pyroscope.write.krabka.receiver]
-}
-
+// The ARM64 trace block-builder is intentionally not CPU-profiled: its
+// current pprof handler can terminate the process during a 30s capture. Metrics,
+// logs, traces, and liveness remain scraped while that upstream bug is fixed.
 // CPU + jemalloc heap profiling for the compaction / block-builder / querier
 // roles that the `krabka_services` block above (broker + distributors +
 // schema-registry) does not cover and that expose /debug/pprof/heap. Worker CPU
