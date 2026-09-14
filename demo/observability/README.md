@@ -18,8 +18,18 @@ blocks.
 
 ## Run
 
-By default, this **pulls the prebuilt image** from GHCR. You do not need a local
-build:
+By default, this **pulls the prebuilt images** from GHCR. You do not need a
+local build. Each service runs the image of the repository that owns its binary,
+and Compose pins each image by digest:
+
+| Services | Image | Override |
+| --- | --- | --- |
+| `broker`, `broker-format` | `ghcr.io/krabka-io/krabka-broker` | `KRABKA_BROKER_IMAGE` |
+| metrics, traces, logs and profiles roles, `observability-topic-setup` | `ghcr.io/krabka-io/krabka-o11y` | `KRABKA_O11Y_IMAGE` |
+| `schema-registry` | `ghcr.io/krabka-io/krabka-schema-registry` | `KRABKA_SCHEMA_REGISTRY_IMAGE` |
+| `gres` | `ghcr.io/krabka-io/gres` | `KRABKA_GRES_IMAGE` |
+| `gres-setup` | `ghcr.io/krabka-io/krabka-cli` | `KRABKA_CLI_IMAGE` |
+| `demo-produce`, `demo-stream`, `demo-consume` | `ghcr.io/krabka-io/krabka-o11y-demo` | `KRABKA_DEMO_IMAGE` |
 
 ```bash
 cd demo/observability
@@ -95,62 +105,50 @@ state. These settings prevent a replay-time OOM and keep the normal RSS small.
 
 ### Rebuild from source
 
-To build the image locally and not pull it, for example to test local changes,
-build and tag it under the same name from the **repo root** with melange and
-apko. Then start the demo as usual. Compose uses the local image when it is
-present:
+To test local changes, build an image with Bazel, load it into Docker, and set
+its override variable. Compose then uses the local image. Each repository
+builds its own image. Clone the repositories next to this one.
+
+This repository builds the demo application image:
 
 ```bash
-go install chainguard.dev/melange@latest
-go install chainguard.dev/apko@latest
-
-mkdir -p packages .melange-cache
-melange keygen melange.rsa
-melange build packaging/melange/krabka-demo.yaml \
-  --source-dir . \
-  --signing-key melange.rsa \
-  --arch x86_64 \
-  --runner docker \
-  --cache-dir "$PWD/.melange-cache" \
-  --out-dir packages/
-
-apko build packaging/apko/krabka-demo.yaml \
-  ghcr.io/robot-head/crabka-demo:latest \
-  krabka-demo.tar \
-  --arch x86_64 \
-  --repository-append "$PWD/packages" \
-  --keyring-append "$PWD/melange.rsa.pub"
-
-docker load < krabka-demo.tar
-export KRABKA_DEMO_IMAGE=ghcr.io/robot-head/crabka-demo:latest
-export KRABKA_SCHEMA_REGISTRY_BIN=krabka-schema-registry
-
-cd ../gres
 case "$(uname -m)" in
-  arm64|aarch64) gres_platform=//:linux_arm64 ;;
-  x86_64|amd64) gres_platform=//:linux_amd64 ;;
+  arm64|aarch64) platform=//:linux_arm64 ;;
+  x86_64|amd64) platform=//:linux_amd64 ;;
   *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
-bazel run -c opt --platforms="${gres_platform}" //packaging/apko:load
+
+bazel run -c opt --platforms="${platform}" //packaging/apko:load
+export KRABKA_DEMO_IMAGE=krabka-io/krabka-o11y-demo:dev
+```
+
+The schema registry image is for amd64 only:
+
+```bash
+cd ../krabka-schema-registry
+bazel run -c opt //packaging:image_load
+export KRABKA_SCHEMA_REGISTRY_IMAGE=ghcr.io/krabka-io/krabka-schema-registry:dev
+```
+
+Gres and the CLI build the same way as this repository:
+
+```bash
+cd ../gres
+bazel run -c opt --platforms="${platform}" //packaging/apko:load
 export KRABKA_GRES_IMAGE=krabka-io/gres:dev
 
 cd ../krabka-cli
-case "$(uname -m)" in
-  arm64|aarch64) cli_platform=//:linux_arm64 ;;
-  x86_64|amd64) cli_platform=//:linux_amd64 ;;
-  *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
-esac
-bazel run -c opt --platforms="${cli_platform}" //packaging/apko:load
+bazel run -c opt --platforms="${platform}" //packaging/apko:load
 export KRABKA_CLI_IMAGE=krabka-io/krabka-cli:dev
 export KRABKA_CLI_BIN=krabka
 
-cd ../krabka-o11y-demo
-cd demo/observability && docker compose up -d
+cd ../krabka-o11y-demo/demo/observability
+docker compose up -d
 ```
 
-Maintainers publish the prebuilt image with the **publish-demo-image** GitHub
-Actions workflow. The path is Actions → *publish-demo-image* → *Run workflow* →
-image tag.
+The `image` GitHub Actions workflow publishes
+`ghcr.io/krabka-io/krabka-o11y-demo`. A push to `main` publishes a
+`sha-<commit>` tag, and a `v*` tag publishes a multi-platform release image.
 
 ## What you should see
 
@@ -280,8 +278,8 @@ and samples at 1.0. A 5% sample of gres would discard 19 of every 20 query
 waterfalls.
 
 Set `KRABKA_OTLP_FILTER` before starting Compose to override the exported span
-filter. The anchor forwards the same value as `CRABKA_OTLP_FILTER` for the
-pinned pre-rename demo image.
+filter. The pinned gres image still reads the pre-rename names, so the `gres`
+service also sets `CRABKA_OTLP_FILTER`.
 
 ### Single node only
 
@@ -356,8 +354,9 @@ curl -s -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' \
 ## Layout
 
 - `docker-compose.yml`: the stack
-- `../../packaging/melange/krabka-demo.yaml`: builds the all-in-one demo APK package
-- `../../packaging/apko/krabka-demo.yaml`: assembles the demo OCI image from that package
+- `../../packaging/apko/BUILD.bazel`: builds the demo application image with
+  rules_apko and rules_img
+- `../../packaging/apko/krabka-demo.yaml`: the locked Wolfi base for that image
 - `alloy/config.alloy`: Alloy collects all four signals from both sources and
   scrapes cAdvisor container resource metrics
 - `grafana/provisioning/`: datasources, the dashboards for the overview, the broker, one per subsystem, and the gres query traces, and the alert rules
