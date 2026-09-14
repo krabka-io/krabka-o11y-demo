@@ -50,6 +50,9 @@ jobs:
         env:
           KRABKA_QUALIFICATION_ARTIFACT_DIR: qualification-artifacts/run
           KRABKA_SMOKE_TARGETS: ready metrics logs traces cross-signal profiles demo-produce demo-stream demo-consume
+          # On a hosted runner, the first cross-signal trace can arrive more
+          # than 300 s after a cold start (run 34858123239).
+          KRABKA_SMOKE_TIMEOUT_SECONDS: "600"
         run: ./qualify-failover.sh
       - name: evidence
         if: always()
