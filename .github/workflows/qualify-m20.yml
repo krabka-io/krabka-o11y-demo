@@ -24,12 +24,7 @@ jobs:
       # long-running services they depend on. check-services.sh fails when one
       # of them has no container, exits, or restarts.
       KRABKA_SMOKE_SERVICES: >-
-        broker rustfs alloy schema-registry grafana cadvisor
-        demo-produce demo-stream demo-consume
-        metrics-distributor metrics-block-builder metrics-compactor metrics-querier
-        traces-distributor traces-block-builder traces-metrics-generator traces-querier
-        logs-distributor logs-block-builder logs-querier
-        profiles-distributor profiles-block-builder profiles-querier
+        broker rustfs alloy schema-registry grafana cadvisor demo-produce demo-stream demo-consume metrics-distributor metrics-block-builder metrics-compactor metrics-querier traces-distributor traces-block-builder traces-metrics-generator traces-querier logs-distributor logs-block-builder logs-querier profiles-distributor profiles-block-builder profiles-querier
     steps:
       - uses: actions/checkout@v7
       - name: free disk
