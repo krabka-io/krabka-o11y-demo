@@ -193,8 +193,8 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
         "M20 observability recovery qualification $qualification_trace_id",
         "seed-log-$phase.json",
         r#"query={service_name=\"m20-qualification\"}"#,
-        r#".data.result | length > 0"#,
-        r#".labels.job == $job"#,
+        r".data.result | length > 0",
+        r".labels.job == $job",
     ] {
         assert2::assert!(qualification.contains(needle));
     }
@@ -218,7 +218,7 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
     let workflow = std::fs::read_to_string(repo_root().join(".github/workflows/qualify-m20.yml"))
         .expect("read M20 qualification workflow");
     assert2::assert!(workflow.contains(
-        "KRABKA_SMOKE_TARGETS: metrics logs traces cross-signal profiles demo-produce demo-stream demo-consume"
+        "KRABKA_SMOKE_TARGETS: ready metrics logs traces cross-signal profiles demo-produce demo-stream demo-consume"
     ));
 
     let compose = docker_compose();
@@ -289,16 +289,153 @@ fn jemalloc_heap_profiling_uses_bounded_always_on_sampling() {
     );
 }
 
+/// The service names in the `services:` section of the compose file, in file
+/// order.
+fn compose_service_names(compose: &str) -> Vec<&str> {
+    let services = compose.find("\nservices:\n").expect("services section");
+    let end = compose[services..]
+        .find("\nconfigs:\n")
+        .map_or(compose.len(), |offset| services + offset);
+    compose[services..end]
+        .lines()
+        .filter_map(|line| {
+            let name = line.strip_prefix("  ")?.strip_suffix(':')?;
+            (!name.starts_with([' ', '#'])).then_some(name)
+        })
+        .collect()
+}
+
+fn is_one_shot(block: &str) -> bool {
+    block.contains("\n    restart: \"no\"\n")
+}
+
+fn command_line(block: &str) -> &str {
+    block
+        .lines()
+        .find_map(|line| line.strip_prefix("    command: "))
+        .expect("service has a one-line command")
+}
+
+/// The pinned krabka-o11y image has no `--compactor-retention` flag and no
+/// logs `compactor` role. Metrics splits the old job into a block builder,
+/// which also runs the retention sweep, and a compactor, which merges blocks.
+/// Logs folds compaction and retention into its block builder.
 #[test]
-fn metrics_compactor_bounds_cold_block_retention_for_demo() {
+fn compaction_roles_use_the_flags_of_the_pinned_image() {
     let compose = docker_compose();
-    let block = compose_service_block(&compose, "metrics-compactor");
-    assert2::assert!(
-        block.contains("--compactor-retention=${KRABKA_METRICS_COMPACTOR_RETENTION:-1h}")
-    );
-    assert2::assert!(block.contains(
-        "--compactor-retention-sweep-interval=${KRABKA_METRICS_COMPACTOR_RETENTION_SWEEP_INTERVAL:-30s}"
+    let expected = [
+        (
+            "metrics-block-builder",
+            r#"["krabka-metrics", "--target=block-builder", "--object-store-url=s3://krabka-metrics", "--bootstrap=broker:9092", "--runtime-overrides=/etc/krabka/metrics-runtime-overrides.yaml", "--block-builder-retention-sweep-interval=${KRABKA_METRICS_BLOCK_BUILDER_RETENTION_SWEEP_INTERVAL:-30s}"]"#,
+        ),
+        (
+            "metrics-compactor",
+            r#"["krabka-metrics", "--target=compactor", "--object-store-url=s3://krabka-metrics", "--compactor-interval=${KRABKA_METRICS_COMPACTOR_INTERVAL:-1m}"]"#,
+        ),
+        (
+            "logs-block-builder",
+            r#"["krabka-observability", "--target=block-builder", "--wal-bootstrap-server=broker:9092", "--object-store-url=s3://krabka-logs", "--index-prefix=logs"]"#,
+        ),
+    ];
+    for (service, command) in expected {
+        let block = compose_service_block(&compose, service);
+        check!(command_line(block) == command, "{service}");
+    }
+    check!(!compose.contains("logs-compactor"));
+    check!(!compose.contains("--compactor-retention="));
+
+    let block_builder = compose_service_block(&compose, "metrics-block-builder");
+    check!(block_builder.contains(
+        "    configs:\n      - source: metrics-runtime-overrides\n        target: /etc/krabka/metrics-runtime-overrides.yaml\n"
     ));
+    check!(compose.contains(
+        "configs:\n  metrics-runtime-overrides:\n    content: |\n      defaults:\n        compactor_blocks_retention_period: \"${KRABKA_METRICS_BLOCK_RETENTION:-1h}\"\n"
+    ));
+}
+
+/// check-services.sh tells a one-shot service from a long-running service by
+/// `restart: "no"`. A service that another service waits on to complete is a
+/// one-shot service, so it must say so.
+#[test]
+fn services_that_others_wait_to_complete_are_one_shot() {
+    let compose = docker_compose();
+    let names = compose_service_names(&compose);
+    for name in &names {
+        let waited_on = format!("      {name}: {{condition: service_completed_successfully}}");
+        if compose.contains(&waited_on) {
+            check!(
+                is_one_shot(compose_service_block(&compose, name)),
+                "{name} is waited on to complete"
+            );
+        }
+    }
+}
+
+/// The distributors exited once at cold start when they started before the
+/// bootstrap created the WAL topics. Each role that reads or writes a WAL waits
+/// for the bootstrap to complete.
+#[test]
+fn wal_roles_wait_for_the_observability_topics() {
+    let compose = docker_compose();
+    for name in compose_service_names(&compose) {
+        let block = compose_service_block(&compose, name);
+        let uses_wal = block.contains("*o11y-image")
+            && ["--bootstrap=broker:9092", "--wal-bootstrap"]
+                .iter()
+                .any(|flag| command_line(block).contains(flag));
+        if uses_wal && name != "observability-topic-setup" {
+            check!(
+                block.contains(
+                    "      observability-topic-setup: {condition: service_completed_successfully}\n"
+                ),
+                "{name}"
+            );
+        }
+    }
+}
+
+/// The smoke test asks each long-running observability role for `/ready`, and
+/// qualification names each long-running service that it starts. Both lists
+/// follow the compose file.
+#[test]
+fn smoke_and_qualification_name_each_long_running_service() {
+    let compose = docker_compose();
+    let long_running: Vec<&str> = compose_service_names(&compose)
+        .into_iter()
+        .filter(|name| !is_one_shot(compose_service_block(&compose, name)))
+        .collect();
+
+    let observability_roles: Vec<&str> = long_running
+        .iter()
+        .copied()
+        .filter(|name| compose_service_block(&compose, name).contains("*o11y-image"))
+        .collect();
+    let smoke = observability_script("smoke.sh");
+    let ready_default = smoke
+        .lines()
+        .find_map(|line| line.strip_prefix("ready_services=${KRABKA_SMOKE_READY_SERVICES:-\""))
+        .and_then(|rest| rest.strip_suffix("\"}"))
+        .expect("smoke.sh sets the default ready services");
+    check!(ready_default.split(' ').collect::<Vec<_>>() == observability_roles);
+
+    let workflow = std::fs::read_to_string(repo_root().join(".github/workflows/qualify-m20.yml"))
+        .expect("read M20 qualification workflow");
+    let start = workflow
+        .find("KRABKA_SMOKE_SERVICES: >-\n")
+        .expect("workflow sets KRABKA_SMOKE_SERVICES");
+    let mut qualified: Vec<&str> = workflow[start..]
+        .lines()
+        .skip(1)
+        .take_while(|line| line.starts_with("        "))
+        .flat_map(str::split_whitespace)
+        .collect();
+    qualified.sort_unstable();
+    let mut expected: Vec<&str> = long_running
+        .into_iter()
+        .filter(|name| !name.starts_with("gres"))
+        .collect();
+    expected.sort_unstable();
+    check!(qualified == expected);
 }
 
 #[test]
@@ -391,13 +528,14 @@ fn otlp_heartbeat_traces_use_per_component_service_names() {
         "broker",
         "schema-registry",
         "metrics-distributor",
+        "metrics-block-builder",
         "metrics-compactor",
         "metrics-querier",
         "traces-distributor",
         "traces-block-builder",
         "traces-querier",
         "logs-distributor",
-        "logs-compactor",
+        "logs-block-builder",
         "logs-querier",
         "profiles-distributor",
         "profiles-block-builder",

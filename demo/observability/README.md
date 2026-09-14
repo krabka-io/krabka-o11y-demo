@@ -42,6 +42,10 @@ Data appears a few minutes after startup, when Alloy collects signals and the
 block-builders flush their first blocks. Allow about 3 to 5 minutes on a cold
 start. The queriers refresh their indexes automatically.
 
+`metrics-block-builder` deletes metric blocks that are older than
+`KRABKA_METRICS_BLOCK_RETENTION`, which defaults to `1h`. `metrics-compactor`
+merges small metric blocks. `logs-block-builder` compacts the logs index.
+
 Tune the load with `KRABKA_DEMO_ORDERS_PER_SEC` on the `demo-produce` service.
 The default is `50Hz`, and `0` pauses production. Tune the SQL load with
 `KRABKA_GRES_WORKLOAD_INTERVAL` on `gres-workload`, which defaults to `5`
@@ -362,3 +366,8 @@ curl -s -H 'X-Scope-OrgID: demo' --get 'http://localhost:3200/api/search' \
 - `grafana/provisioning/`: datasources, the dashboards for the overview, the broker, one per subsystem, and the gres query traces, and the alert rules
 - `rustfs/bootstrap.sh`: creates one bucket per signal (`krabka-metrics`, `krabka-traces`, `krabka-logs`, `krabka-profiles`)
 - `gres/workload.sh`: the SQL loop that makes gres produce query traces
+- `smoke.sh`: waits until each signal is queryable. It fails when a service
+  exits or restarts
+- `check-services.sh`: checks the exit code, the health and the restart count
+  of each service. For each service in an unexpected state, it writes the
+  service, the command and the image digest
