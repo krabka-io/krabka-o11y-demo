@@ -47,6 +47,11 @@ test --@aspect_rules_lint//lint:fail_on_violation
 # instrumenting the whole dependency closure is most of the run.
 coverage --combined_report=lcov
 coverage --instrumentation_filter=^//crates[:/]
+# Instrument the test binaries too. Without this flag, each `crates/*/tests/*.rs`
+# target builds without `-Cinstrument-coverage`, and the report shows the library
+# code those tests run as missed. The test sources then appear in the report
+# too; //codecov.yml ignores them.
+coverage --instrument_test_targets
 # Profiling instrumentation slows every test enough to trip the wall-clock
 # assertions in the consensus and replication suites -- they pass in the test
 # run and fail here, which is a statement about the instrumentation rather than
