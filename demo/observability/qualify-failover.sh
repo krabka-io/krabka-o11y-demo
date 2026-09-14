@@ -25,7 +25,7 @@ finish() {
 trap finish EXIT
 
 ledger() {
-  for group in krabka-metrics-compactor krabka-traces-block-builder krabka-profiles-block-builder krabka-observability-compactor; do
+  for group in krabka-metrics-block-builder krabka-traces-block-builder krabka-profiles-block-builder krabka-observability-block-builder; do
     docker compose run --rm --no-deps --entrypoint /opt/kafka/bin/kafka-consumer-groups.sh topic-setup \
       --bootstrap-server broker:9092 --describe --group "$group" || true
   done
@@ -33,6 +33,20 @@ ledger() {
 
 offset_sum() {
   awk '$4 ~ /^[0-9]+$/ {sum += $4; seen = 1} END {if (!seen) exit 1; print sum}' "$1"
+}
+
+# A pipe into `tee` hides the exit status of the smoke test. Write the log first,
+# then show it, then return the exit status of the smoke test. The optional
+# second argument replaces the smoke targets.
+run_smoke() {
+  smoke_status=0
+  if [ "$#" -gt 1 ]; then
+    KRABKA_SMOKE_TARGETS=$2 ./smoke.sh >"$artifact_dir/$1-smoke.log" 2>&1 || smoke_status=$?
+  else
+    ./smoke.sh >"$artifact_dir/$1-smoke.log" 2>&1 || smoke_status=$?
+  fi
+  cat "$artifact_dir/$1-smoke.log"
+  return "$smoke_status"
 }
 
 has_service_down_alert() {
@@ -93,14 +107,14 @@ capture_queries() {
 }
 
 seed_qualification_signals
-./smoke.sh | tee "$artifact_dir/before-smoke.log"
+run_smoke before
 capture_queries before
 ledger >"$artifact_dir/offsets-before.txt" 2>&1
 
 docker compose kill -s KILL traces-block-builder
 docker compose restart broker
 docker compose up -d traces-block-builder
-./smoke.sh | tee "$artifact_dir/after-recovery-smoke.log"
+run_smoke after-recovery
 capture_queries after
 ledger >"$artifact_dir/offsets-after.txt" 2>&1
 before_offset=$(offset_sum "$artifact_dir/offsets-before.txt")
@@ -123,5 +137,6 @@ while curl -fsS http://localhost:3000/api/alertmanager/grafana/api/v2/alerts 2>/
   sleep 5
 done
 curl -fsS http://localhost:3000/api/alertmanager/grafana/api/v2/alerts >"$artifact_dir/alerts-resolved.json"
+run_smoke final ready
 
 echo "$artifact_dir"

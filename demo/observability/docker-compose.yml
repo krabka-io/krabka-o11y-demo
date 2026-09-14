@@ -221,6 +221,7 @@ services:
   rustfs-setup:
     image: mirror.gcr.io/amazon/aws-cli:latest
     <<: *setup-res
+    restart: "no"
     environment: {<<: *s3-env}
     depends_on:
       rustfs: {condition: service_healthy}
@@ -284,16 +285,35 @@ services:
       OTEL_SERVICE_NAME: metrics-distributor
     depends_on:
       broker: {condition: service_healthy}
+      observability-topic-setup: {condition: service_completed_successfully}
 
+  # The block builder reads the metrics WAL and writes blocks. It also runs the
+  # retention sweep. The sweep reads the window from the
+  # `compactor_blocks_retention_period` limit in the runtime overrides file.
+  metrics-block-builder:
+    <<: [*o11y-image, *compactor-res]
+    command: ["krabka-metrics", "--target=block-builder", "--object-store-url=s3://krabka-metrics", "--bootstrap=broker:9092", "--runtime-overrides=/etc/krabka/metrics-runtime-overrides.yaml", "--block-builder-retention-sweep-interval=${KRABKA_METRICS_BLOCK_BUILDER_RETENTION_SWEEP_INTERVAL:-30s}"]
+    configs:
+      - source: metrics-runtime-overrides
+        target: /etc/krabka/metrics-runtime-overrides.yaml
+    environment:
+      <<: [*s3-env, *otlp-env]
+      OTEL_SERVICE_NAME: metrics-block-builder
+    depends_on:
+      rustfs-setup: {condition: service_completed_successfully}
+      broker: {condition: service_healthy}
+      observability-topic-setup: {condition: service_completed_successfully}
+
+  # The compactor merges the blocks that are already in object storage. It does
+  # not connect to the broker.
   metrics-compactor:
     <<: [*o11y-image, *compactor-res]
-    command: ["krabka-metrics", "--target=compactor", "--object-store-url=s3://krabka-metrics", "--bootstrap=broker:9092", "--compactor-retention=${KRABKA_METRICS_COMPACTOR_RETENTION:-1h}", "--compactor-retention-sweep-interval=${KRABKA_METRICS_COMPACTOR_RETENTION_SWEEP_INTERVAL:-30s}"]
+    command: ["krabka-metrics", "--target=compactor", "--object-store-url=s3://krabka-metrics", "--compactor-interval=${KRABKA_METRICS_COMPACTOR_INTERVAL:-1m}"]
     environment:
       <<: [*s3-env, *otlp-env]
       OTEL_SERVICE_NAME: metrics-compactor
     depends_on:
       rustfs-setup: {condition: service_completed_successfully}
-      broker: {condition: service_healthy}
 
   metrics-querier:
     # krabka-metrics-service uses --wal-bootstrap (its own flag name).
@@ -306,6 +326,7 @@ services:
     depends_on:
       rustfs-setup: {condition: service_completed_successfully}
       broker: {condition: service_healthy}
+      observability-topic-setup: {condition: service_completed_successfully}
 
   # ---- TRACES (Tempo) ----
   traces-distributor:
@@ -316,6 +337,7 @@ services:
       OTEL_SERVICE_NAME: traces-distributor
     depends_on:
       broker: {condition: service_healthy}
+      observability-topic-setup: {condition: service_completed_successfully}
 
   traces-block-builder:
     <<: [*o11y-image, *compactor-res]
@@ -332,6 +354,7 @@ services:
     depends_on:
       rustfs-setup: {condition: service_completed_successfully}
       broker: {condition: service_healthy}
+      observability-topic-setup: {condition: service_completed_successfully}
 
   traces-metrics-generator:
     <<: [*o11y-image, *compactor-res]
@@ -341,6 +364,7 @@ services:
       OTEL_SERVICE_NAME: traces-metrics-generator
     depends_on:
       broker: {condition: service_healthy}
+      observability-topic-setup: {condition: service_completed_successfully}
       metrics-distributor: {condition: service_started}
       topic-setup: {condition: service_completed_successfully}
 
@@ -366,26 +390,30 @@ services:
       OTEL_SERVICE_NAME: logs-distributor
     depends_on:
       broker: {condition: service_healthy}
+      observability-topic-setup: {condition: service_completed_successfully}
       rustfs-setup: {condition: service_completed_successfully}
 
-  logs-compactor:
+  # Logs has no separate compactor role. The block builder reads the logs WAL,
+  # writes blocks, compacts the index and runs the retention sweep.
+  logs-block-builder:
     <<: [*o11y-image, *compactor-res]
-    command: ["krabka-observability", "--target=compactor", "--wal-bootstrap-server=broker:9092", "--object-store-url=s3://krabka-logs", "--index-prefix=logs"]
+    command: ["krabka-observability", "--target=block-builder", "--wal-bootstrap-server=broker:9092", "--object-store-url=s3://krabka-logs", "--index-prefix=logs"]
     environment:
       <<: [*s3-env, *otlp-env]
-      OTEL_SERVICE_NAME: logs-compactor
+      OTEL_SERVICE_NAME: logs-block-builder
     depends_on:
       broker: {condition: service_healthy}
       rustfs-setup: {condition: service_completed_successfully}
+      observability-topic-setup: {condition: service_completed_successfully}
 
   logs-querier:
-    # --wal-group-id MUST differ from the compactor's default
-    # (`krabka-observability-compactor`): both subscribe() to the single-partition
+    # --wal-group-id MUST differ from the block builder's default
+    # (`krabka-observability-block-builder`): both subscribe() to the single-partition
     # logs WAL, so a shared group id makes them fight over the one partition and
     # the querier's consumer spins on REBALANCE_IN_PROGRESS(27). A distinct group
     # lets each independently tail the WAL.
     # --querier-index-source=tenant-object-store-shards reads the incremental
-    # shard catalog the compactor writes to S3 (default `local-manifest` reads
+    # shard catalog the block builder writes to S3 (default `local-manifest` reads
     # the querier's empty local disk -> no labels/series). With no --tenant, the
     # tenant is resolved per-request from X-Scope-OrgID.
     <<: [*o11y-image, *querier-res]
@@ -397,10 +425,11 @@ services:
     # The hot-tail WAL consumer (--wal-bootstrap-server) connects to the broker at
     # startup; without waiting for broker health it starts too early, the initial
     # consumer-group join fails, and the tail never recovers -> empty labels/streams
-    # until the container is restarted. Wait for the broker like the compactor does.
+    # until the container is restarted. Wait for the WAL topics like the block builder does.
     depends_on:
       rustfs-setup: {condition: service_completed_successfully}
       broker: {condition: service_healthy}
+      observability-topic-setup: {condition: service_completed_successfully}
 
   # ---- PROFILES (Pyroscope) ----
   profiles-distributor:
@@ -411,6 +440,7 @@ services:
       OTEL_SERVICE_NAME: profiles-distributor
     depends_on:
       broker: {condition: service_healthy}
+      observability-topic-setup: {condition: service_completed_successfully}
 
   profiles-block-builder:
     <<: [*o11y-image, *compactor-res]
@@ -426,6 +456,7 @@ services:
     depends_on:
       rustfs-setup: {condition: service_completed_successfully}
       broker: {condition: service_healthy}
+      observability-topic-setup: {condition: service_completed_successfully}
 
   profiles-querier:
     # --bootstrap is REQUIRED: the querier's hot WAL-tail consumer reads recent
@@ -448,6 +479,7 @@ services:
     depends_on:
       rustfs-setup: {condition: service_completed_successfully}
       broker: {condition: service_healthy}
+      observability-topic-setup: {condition: service_completed_successfully}
 
   # ---- COLLECTOR + GRAFANA ----
   alloy:
@@ -652,6 +684,12 @@ services:
     volumes: ["./gres/workload.sh:/workload.sh:ro"]
     depends_on:
       gres: {condition: service_started}
+
+configs:
+  metrics-runtime-overrides:
+    content: |
+      defaults:
+        compactor_blocks_retention_period: "${KRABKA_METRICS_BLOCK_RETENTION:-1h}"
 
 volumes:
   broker-data:

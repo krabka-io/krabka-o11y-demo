@@ -19,6 +19,17 @@ jobs:
   recovery:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # The long-running services that qualification starts, with the
+      # long-running services they depend on. check-services.sh fails when one
+      # of them has no container, exits, or restarts.
+      KRABKA_SMOKE_SERVICES: >-
+        broker rustfs alloy schema-registry grafana cadvisor
+        demo-produce demo-stream demo-consume
+        metrics-distributor metrics-block-builder metrics-compactor metrics-querier
+        traces-distributor traces-block-builder traces-metrics-generator traces-querier
+        logs-distributor logs-block-builder logs-querier
+        profiles-distributor profiles-block-builder profiles-querier
     steps:
       - uses: actions/checkout@v7
       - name: free disk
@@ -27,22 +38,23 @@ jobs:
         working-directory: demo/observability
         run: |
           mkdir -p qualification-artifacts/run
-          docker compose up -d --wait --wait-timeout 600 \
-            grafana cadvisor \
-            demo-produce demo-stream demo-consume \
-            metrics-distributor metrics-compactor metrics-querier \
-            traces-distributor traces-block-builder traces-metrics-generator traces-querier \
-            logs-distributor logs-compactor logs-querier \
-            profiles-distributor profiles-block-builder profiles-querier || {
-              docker compose ps -a >qualification-artifacts/run/startup-ps.txt
-              docker compose logs --no-color >qualification-artifacts/run/startup.log 2>&1
-              exit 1
-            }
+          read -r -a services <<<"$KRABKA_SMOKE_SERVICES"
+          status=0
+          docker compose up -d --wait --wait-timeout 600 "${services[@]}" || status=$?
+          # `docker compose up --wait` can return 0 while a service restarts in
+          # a loop. check-services.sh also checks exits and restart counts.
+          ./check-services.sh >qualification-artifacts/run/startup-services.txt || status=1
+          cat qualification-artifacts/run/startup-services.txt
+          if [ "$status" -ne 0 ]; then
+            docker compose ps -a >qualification-artifacts/run/startup-ps.txt
+            docker compose logs --no-color >qualification-artifacts/run/startup.log 2>&1
+            exit 1
+          fi
       - name: qualify recovery
         working-directory: demo/observability
         env:
           KRABKA_QUALIFICATION_ARTIFACT_DIR: qualification-artifacts/run
-          KRABKA_SMOKE_TARGETS: metrics logs traces cross-signal profiles demo-produce demo-stream demo-consume
+          KRABKA_SMOKE_TARGETS: ready metrics logs traces cross-signal profiles demo-produce demo-stream demo-consume
         run: ./qualify-failover.sh
       - name: evidence
         if: always()

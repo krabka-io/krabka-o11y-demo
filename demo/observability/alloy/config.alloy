@@ -74,13 +74,14 @@ prometheus.scrape "krabka" {
 		{__address__ = "broker:9404", job = "broker"},
 		{__address__ = "metrics-distributor:9404", job = "metrics-distributor"},
 		{__address__ = "metrics-querier:9404", job = "metrics-querier"},
+		{__address__ = "metrics-block-builder:9404", job = "metrics-block-builder"},
 		{__address__ = "metrics-compactor:9404", job = "metrics-compactor"},
 		{__address__ = "traces-distributor:9404", job = "traces-distributor"},
 		{__address__ = "traces-querier:9404", job = "traces-querier"},
 		{__address__ = "traces-block-builder:9404", job = "traces-block-builder"},
 		{__address__ = "logs-distributor:9404", job = "logs-distributor"},
 		{__address__ = "logs-querier:9404", job = "logs-querier"},
-		{__address__ = "logs-compactor:9404", job = "logs-compactor"},
+		{__address__ = "logs-block-builder:9404", job = "logs-block-builder"},
 		{__address__ = "profiles-distributor:9404", job = "profiles-distributor"},
 		{__address__ = "profiles-querier:9404", job = "profiles-querier"},
 		{__address__ = "profiles-block-builder:9404", job = "profiles-block-builder"},
@@ -362,9 +363,10 @@ pyroscope.scrape "trace_block_builder_cpu" {
 // steady CPU.
 pyroscope.scrape "krabka_workers" {
 	targets = [
+		{__address__ = "metrics-block-builder:9404", service_name = "metrics-block-builder"},
 		{__address__ = "metrics-compactor:9404", service_name = "metrics-compactor"},
 		{__address__ = "metrics-querier:9404", service_name = "metrics-querier"},
-		{__address__ = "logs-compactor:9404", service_name = "logs-compactor"},
+		{__address__ = "logs-block-builder:9404", service_name = "logs-block-builder"},
 		{__address__ = "logs-querier:9404", service_name = "logs-querier"},
 		{__address__ = "profiles-block-builder:9404", service_name = "profiles-block-builder"},
 		{__address__ = "profiles-querier:9404", service_name = "profiles-querier"},

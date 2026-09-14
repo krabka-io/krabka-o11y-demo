@@ -283,7 +283,7 @@
       "id": 34, "type": "logs", "title": "Object-store client retry logs",
       "datasource": { "type": "loki", "uid": "krabka-loki" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 76 },
-      "targets": [ { "refId": "A", "expr": "{service_name=~\"logs-querier|metrics-querier|traces-querier|profiles-querier|logs-compactor|metrics-compactor|traces-block-builder|profiles-block-builder\"} |= \"object_store::client::retry\"" } ]
+      "targets": [ { "refId": "A", "expr": "{service_name=~\"logs-querier|metrics-querier|traces-querier|profiles-querier|logs-block-builder|metrics-block-builder|metrics-compactor|traces-block-builder|profiles-block-builder\"} |= \"object_store::client::retry\"" } ]
     },
     {
       "id": 35, "type": "table", "title": "Recent traces",
