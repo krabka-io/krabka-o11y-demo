@@ -46,11 +46,12 @@ use krabka_schema_serde::{
 };
 use krabka_units::{fmt::Human as _, parse, prelude::*};
 use observability_demo_app::{
-    Order, classify_outcome, is_anomalous,
+    Order, is_anomalous,
     metrics::{DemoMetrics, PipelineErrorKind, metrics_router},
     order_at,
     pipeline::{
-        PipelineInputError, StageWork, decode_order, header_value, order_headers, stage_delay,
+        PipelineInputError, StageWork, decode_order, header_value, order_headers, process_order,
+        stage_delay,
     },
 };
 use tracing::Instrument as _;
@@ -865,34 +866,58 @@ struct ConsumerRuntime {
     frame_max: ClientFrameMax,
 }
 
+fn stream_runtime(cli: &Cli) -> std::io::Result<StreamRuntime> {
+    let (dispatch_queue_capacity, frame_max) = client_resource_policy(cli);
+    let (poll_interval, commit_interval) = effective_streams_runtime_cadence(cli)?;
+    Ok(StreamRuntime {
+        schema_fetch_retry_policy: schema_fetch_retry_policy(cli)?,
+        broker_dns_timeout: effective_streams_broker_dns_timeout(cli)?,
+        poll_interval,
+        commit_interval,
+        rebalance_timeout: effective_streams_rebalance_timeout(cli)?,
+        leave_heartbeat_timeout: effective_streams_leave_heartbeat_timeout(cli)?,
+        join_retry_backoff: effective_streams_join_retry_backoff(cli)?,
+        query_queue_capacity: effective_streams_interactive_query_queue_capacity(cli)?,
+        state_store_cache_max_bytes: effective_streams_state_store_cache_max_bytes(cli)?,
+        dispatch_queue_capacity,
+        frame_max,
+        fetch_min: effective_streams_fetch_min(cli)?,
+    })
+}
+
+fn consumer_runtime(cli: &Cli) -> std::io::Result<ConsumerRuntime> {
+    let (dispatch_queue_capacity, frame_max) = client_resource_policy(cli);
+    let (fetch_min, fetch_max, fetch_partition_max) = effective_consumer_fetch_policy(cli)?;
+    let (session_timeout, rebalance_timeout, heartbeat_interval, request_timeout) =
+        effective_consumer_timing(cli)?;
+    let (auto_offset_reset, isolation_level, assignor) = effective_consumer_behavior(cli)?;
+    Ok(ConsumerRuntime {
+        schema_fetch_retry_policy: schema_fetch_retry_policy(cli)?,
+        leave_group_timeout: effective_consumer_leave_group_timeout(cli)?,
+        metadata_refresh_interval: effective_consumer_subscription_metadata_refresh_interval(cli)?,
+        retry_policy: effective_consumer_retry_policy(cli)?,
+        fetch_min,
+        fetch_max,
+        fetch_partition_max,
+        session_timeout,
+        rebalance_timeout,
+        heartbeat_interval,
+        request_timeout,
+        auto_offset_reset,
+        isolation_level,
+        assignor,
+        dispatch_queue_capacity,
+        frame_max,
+    })
+}
+
 #[tokio::main]
 async fn main() -> Result<(), BoxError> {
     let cli = Cli::parse();
     let (client_dispatch_queue_capacity, client_frame_max) = client_resource_policy(&cli);
-    let streams_fetch_min = effective_streams_fetch_min(&cli)?;
     let schema_fetch_retry_policy = schema_fetch_retry_policy(&cli)?;
-    let consumer_leave_group_timeout = effective_consumer_leave_group_timeout(&cli)?;
-    let consumer_subscription_metadata_refresh_interval =
-        effective_consumer_subscription_metadata_refresh_interval(&cli)?;
-    let consumer_retry_policy = effective_consumer_retry_policy(&cli)?;
-    let (consumer_fetch_min, consumer_fetch_max, consumer_fetch_partition_max) =
-        effective_consumer_fetch_policy(&cli)?;
-    let (
-        consumer_session_timeout,
-        consumer_rebalance_timeout,
-        consumer_heartbeat_interval,
-        consumer_request_timeout,
-    ) = effective_consumer_timing(&cli)?;
-    let (consumer_auto_offset_reset, consumer_isolation_level, consumer_assignor) =
-        effective_consumer_behavior(&cli)?;
-    let streams_broker_dns_timeout = effective_streams_broker_dns_timeout(&cli)?;
-    let (streams_poll_interval, streams_commit_interval) = effective_streams_runtime_cadence(&cli)?;
-    let streams_rebalance_timeout = effective_streams_rebalance_timeout(&cli)?;
-    let streams_leave_heartbeat_timeout = effective_streams_leave_heartbeat_timeout(&cli)?;
-    let streams_join_retry_backoff = effective_streams_join_retry_backoff(&cli)?;
-    let streams_interactive_query_queue_capacity =
-        effective_streams_interactive_query_queue_capacity(&cli)?;
-    let streams_state_store_cache_max_bytes = effective_streams_state_store_cache_max_bytes(&cli)?;
+    let stream_runtime = stream_runtime(&cli)?;
+    let consumer_runtime = consumer_runtime(&cli)?;
 
     let telemetry = krabka_telemetry::init(
         krabka_telemetry::OtlpConfig::from_env(
@@ -933,50 +958,10 @@ async fn main() -> Result<(), BoxError> {
             .await?;
         }
         Role::Stream => {
-            run_stream(
-                &cli,
-                &metrics,
-                StreamRuntime {
-                    schema_fetch_retry_policy,
-                    broker_dns_timeout: streams_broker_dns_timeout,
-                    poll_interval: streams_poll_interval,
-                    commit_interval: streams_commit_interval,
-                    rebalance_timeout: streams_rebalance_timeout,
-                    leave_heartbeat_timeout: streams_leave_heartbeat_timeout,
-                    join_retry_backoff: streams_join_retry_backoff,
-                    query_queue_capacity: streams_interactive_query_queue_capacity,
-                    state_store_cache_max_bytes: streams_state_store_cache_max_bytes,
-                    dispatch_queue_capacity: client_dispatch_queue_capacity,
-                    frame_max: client_frame_max,
-                    fetch_min: streams_fetch_min,
-                },
-            )
-            .await?;
+            run_stream(&cli, &metrics, stream_runtime).await?;
         }
         Role::Consume => {
-            run_consume(
-                &cli,
-                &metrics,
-                ConsumerRuntime {
-                    schema_fetch_retry_policy,
-                    leave_group_timeout: consumer_leave_group_timeout,
-                    metadata_refresh_interval: consumer_subscription_metadata_refresh_interval,
-                    retry_policy: consumer_retry_policy,
-                    fetch_min: consumer_fetch_min,
-                    fetch_max: consumer_fetch_max,
-                    fetch_partition_max: consumer_fetch_partition_max,
-                    session_timeout: consumer_session_timeout,
-                    rebalance_timeout: consumer_rebalance_timeout,
-                    heartbeat_interval: consumer_heartbeat_interval,
-                    request_timeout: consumer_request_timeout,
-                    auto_offset_reset: consumer_auto_offset_reset,
-                    isolation_level: consumer_isolation_level,
-                    assignor: consumer_assignor,
-                    dispatch_queue_capacity: client_dispatch_queue_capacity,
-                    frame_max: client_frame_max,
-                },
-            )
-            .await?;
+            run_consume(&cli, &metrics, consumer_runtime).await?;
         }
     }
     telemetry.shutdown();
@@ -1281,7 +1266,6 @@ async fn process_order_inner(
     metrics: &DemoMetrics,
     record: &ConsumerRecord,
 ) {
-    let start = Instant::now();
     let order = match decode_order(record.value.as_deref(), |value| {
         serde.deserialize(&cli.input_topic, value)
     }) {
@@ -1299,7 +1283,11 @@ async fn process_order_inner(
             return;
         }
     };
+    process_decoded_order(cli, metrics, order).await;
+}
 
+async fn process_decoded_order(cli: &Cli, metrics: &DemoMetrics, order: Order) {
+    let start = Instant::now();
     let span = tracing::Span::current();
     span.record("demo.order.id", order.order_id.as_str());
     span.record("demo.order.category", order.category.as_str());
@@ -1323,16 +1311,14 @@ async fn process_order_inner(
         .strip_prefix("o-")
         .and_then(|value| value.parse().ok())
         .unwrap_or_default();
-    for name in ["validate", "enrich", "fraud_check", "fulfill"] {
+    let outcome = process_order(&order, |name| {
         stage(
             metrics,
             name,
             stage_delay(name, work, order_index, cli.slow_order_fraction),
         )
-        .await;
-    }
-
-    let outcome = classify_outcome(&order);
+    })
+    .await;
     span.record("demo.order.outcome", outcome);
     metrics.record_processed(
         &order.category,
@@ -1408,6 +1394,53 @@ mod tests {
     use clap::CommandFactory;
 
     use super::*;
+
+    #[test]
+    fn runtime_configs_bind_the_validated_role_settings() {
+        let stream_cli = Cli::try_parse_from(["observability-demo-app", "--role", "stream"])
+            .expect("stream CLI");
+        let stream = stream_runtime(&stream_cli).expect("stream runtime");
+        observability_demo_app::check_eq!(stream.broker_dns_timeout, ClientDnsTimeout::default());
+        observability_demo_app::check_eq!(stream.poll_interval, StreamsPollInterval::default());
+        observability_demo_app::check_eq!(
+            stream.state_store_cache_max_bytes,
+            StreamsStateStoreCacheMaxBytes::default()
+        );
+
+        let consumer_cli = Cli::try_parse_from(["observability-demo-app", "--role", "consume"])
+            .expect("consumer CLI");
+        let consumer = consumer_runtime(&consumer_cli).expect("consumer runtime");
+        observability_demo_app::check_eq!(consumer.session_timeout, secs(45));
+        observability_demo_app::check_eq!(consumer.request_timeout, secs(30));
+        assert2::assert!(matches!(
+            consumer.auto_offset_reset,
+            AutoOffsetReset::Latest
+        ));
+        observability_demo_app::check_eq!(consumer.assignor, Assignor::Range);
+    }
+
+    #[tokio::test]
+    async fn decoded_order_runs_every_stage_and_records_the_outcome() {
+        let mut cli = Cli::try_parse_from(["observability-demo-app", "--role", "consume"])
+            .expect("consumer CLI");
+        cli.validate_work = Time::ZERO;
+        cli.enrich_work = Time::ZERO;
+        cli.fraud_check_work = Time::ZERO;
+        cli.fulfill_work = Time::ZERO;
+        cli.slow_order_fraction = 0.0;
+        let metrics = DemoMetrics::new();
+
+        process_decoded_order(&cli, &metrics, order_at(1)).await;
+
+        let mut encoded = String::new();
+        let registry = metrics.registry.lock().await;
+        prometheus_client::encoding::text::encode(&mut encoded, &registry)
+            .expect("encode pipeline metrics");
+        for stage in ["validate", "enrich", "fraud_check", "fulfill"] {
+            assert2::assert!(encoded.contains(&format!("stage=\"{stage}\"")));
+        }
+        assert2::assert!(encoded.contains("outcome=\"fulfilled\""));
+    }
 
     #[tokio::test]
     async fn shutdown_helper_accepts_an_injected_signal() {
