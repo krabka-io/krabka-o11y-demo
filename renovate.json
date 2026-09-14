@@ -3,7 +3,7 @@
   "extends": [
     "config:recommended"
   ],
-  "automerge": true,
+  "automerge": false,
   "automergeType": "pr",
   "automergeStrategy": "squash",
   "platformAutomerge": true,
@@ -18,6 +18,17 @@
     ]
   },
   "customManagers": [
+    {
+      "description": "Only digest-pinned GitHub Actions patch updates may merge automatically after required checks pass.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "digest",
+        "patch"
+      ],
+      "automerge": true
+    },
     {
       "customType": "regex",
       "description": "The rules_rs toolchain version in MODULE.bazel. Named and sourced exactly as the built-in rust-toolchain manager names rust-toolchain.toml, so the two group.",

@@ -1,0 +1,84 @@
+name: qualify release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to qualify
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-latest
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      KRABKA_REVISION: ${{ github.sha }}
+      IMAGE: ghcr.io/krabka-io/krabka-o11y-demo
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      KRABKA_SMOKE_TIMEOUT_SECONDS: "600"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: resolve immutable multi-platform candidate
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "${IMAGE}:${TAG}" --raw >candidate-index.json
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" | awk '$1 == "Digest:" {print $2; exit}')"
+          test -n "${digest}"
+          jq -e '[.manifests[].platform | .os + "/" + .architecture] | index("linux/amd64") and index("linux/arm64")' candidate-index.json
+          echo "KRABKA_DEMO_IMAGE=${IMAGE}@${digest}" >>"${GITHUB_ENV}"
+          printf '%s@%s\n' "${IMAGE}" "${digest}" >candidate-image.txt
+      - name: cold qualification
+        working-directory: demo/observability
+        run: |
+          set -euo pipefail
+          mkdir -p qualification-artifacts/cold qualification-artifacts/upgrade
+          docker compose down -v --remove-orphans
+          docker compose up -d --wait --wait-timeout 600
+          KRABKA_SMOKE_TARGETS="ready metrics logs traces cross-signal profiles gres demo-produce demo-stream demo-consume" ./smoke.sh
+          ./check-services.sh >qualification-artifacts/cold/services.txt
+          ./revision-report.sh qualification-artifacts/cold/revisions.txt
+      - name: retained-state restart and rollback drill
+        working-directory: demo/observability
+        run: |
+          set -euo pipefail
+          before="$(curl -fsS -H 'X-Scope-OrgID: demo' 'http://127.0.0.1:9090/api/v1/query?query=sum(krabka_demo_orders_processed_total)' | jq -r '.data.result[0].value[1] // 0')"
+          docker compose stop
+          docker compose up -d --wait --wait-timeout 600
+          KRABKA_SMOKE_TARGETS="ready metrics logs traces cross-signal profiles gres" ./smoke.sh
+          after="$(curl -fsS -H 'X-Scope-OrgID: demo' 'http://127.0.0.1:9090/api/v1/query?query=sum(krabka_demo_orders_processed_total)' | jq -r '.data.result[0].value[1] // 0')"
+          awk -v before="${before}" -v after="${after}" 'BEGIN {exit !(after >= before)}'
+          printf 'before=%s\nafter=%s\n' "${before}" "${after}" >qualification-artifacts/upgrade/retained-state.txt
+          KRABKA_DEMO_IMAGE="${IMAGE}@sha256:$(printf broken | sha256sum | cut -d' ' -f1)" docker compose up -d demo-produce >/dev/null 2>&1 && exit 1 || true
+          docker compose up -d --wait --wait-timeout 600 demo-produce
+          ./check-services.sh >qualification-artifacts/upgrade/rollback-services.txt
+      - name: checksummed evidence
+        if: always()
+        run: |
+          cp candidate-index.json candidate-image.txt demo/observability/qualification-artifacts/
+          cd demo/observability/qualification-artifacts
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum >SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: release-qualification-${{ env.TAG }}-${{ matrix.architecture }}
+          path: demo/observability/qualification-artifacts/
+          if-no-files-found: error
+      - name: stop stack
+        if: always()
+        working-directory: demo/observability
+        run: docker compose down -v --remove-orphans

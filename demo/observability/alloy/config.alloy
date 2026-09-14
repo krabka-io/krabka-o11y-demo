@@ -88,6 +88,9 @@ prometheus.scrape "krabka" {
 		{__address__ = "demo-produce:9404", job = "demo-produce"},
 		{__address__ = "demo-stream:9404", job = "demo-stream"},
 		{__address__ = "demo-consume:9404", job = "demo-consume"},
+		{__address__ = "schema-registry:9404", job = "schema-registry"},
+		{__address__ = "alloy:12345", job = "alloy"},
+		{__address__ = "grafana:3000", job = "grafana"},
 	]
 	scrape_interval = "15s"
 	forward_to      = [prometheus.remote_write.krabka.receiver]

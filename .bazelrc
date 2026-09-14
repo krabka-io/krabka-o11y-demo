@@ -22,6 +22,8 @@ build --host_linkopt=-Wno-unused-command-line-argument
 # registered in MODULE.bazel.
 common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 common --repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
+# Dependency resolution must be reviewed and committed; CI never refreshes it.
+common --lockfile_mode=error
 
 test --test_output=errors
 

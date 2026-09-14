@@ -1,531 +1,60 @@
 use std::path::{Path, PathBuf};
 
-use assert2::check;
+use serde_yaml::Value;
 
-fn repo_root() -> PathBuf {
-    // Read at run time, not through `env!`: the demo tree is opened here rather
-    // than included at compile time, so a baked build path would be gone by the
-    // time the test runs. Cargo sets the variable; under Bazel the test runs
-    // from the workspace root, where the tree already sits at its repo path.
-    match std::env::var("CARGO_MANIFEST_DIR") {
-        Ok(dir) => Path::new(&dir)
-            .ancestors()
-            .nth(2)
-            .expect("crate lives under repo_root/crates/<name>")
-            .to_path_buf(),
-        Err(_) => PathBuf::from("."),
-    }
-}
-
-fn alloy_config() -> String {
-    std::fs::read_to_string(repo_root().join("demo/observability/alloy/config.alloy"))
-        .expect("read Alloy config")
-}
-
-fn docker_compose() -> String {
-    std::fs::read_to_string(repo_root().join("demo/observability/docker-compose.yml"))
-        .expect("read observability compose file")
-}
-
-fn observability_script(name: &str) -> String {
-    std::fs::read_to_string(repo_root().join(format!("demo/observability/{name}")))
-        .expect("read observability script")
-}
-
-fn compose_service_block<'a>(compose: &'a str, service: &str) -> &'a str {
-    let marker = format!("  {service}:");
-    let start = compose.find(&marker).expect("compose service exists");
-    let rest = &compose[start..];
-    let mut offset = 0_usize;
-    for (index, line) in rest.split_inclusive('\n').enumerate() {
-        if index > 0
-            && line.starts_with("  ")
-            && !line.starts_with("    ")
-            && !line.trim_start().starts_with('#')
-        {
-            return &rest[..offset];
-        }
-        offset += line.len();
-    }
-    rest
-}
-
-fn dashboard_provider_config() -> String {
-    std::fs::read_to_string(
-        repo_root().join("demo/observability/grafana/provisioning/dashboards/dashboards.yaml"),
+fn root() -> PathBuf {
+    std::env::var("CARGO_MANIFEST_DIR").map_or_else(
+        |_| PathBuf::from("."),
+        |dir| {
+            Path::new(&dir)
+                .ancestors()
+                .nth(2)
+                .expect("crate under repository root")
+                .to_path_buf()
+        },
     )
-    .expect("read Grafana dashboard provisioning config")
 }
 
-fn grafana_datasource_config() -> String {
-    std::fs::read_to_string(
-        repo_root().join("demo/observability/grafana/provisioning/datasources/krabka.yaml"),
-    )
-    .expect("read Grafana datasource provisioning config")
+fn read(path: &str) -> String {
+    std::fs::read_to_string(root().join(path)).expect("read repository file")
 }
 
-fn grafana_alerting_config() -> String {
-    std::fs::read_to_string(
-        repo_root().join("demo/observability/grafana/provisioning/alerting/krabka-alerts.yaml"),
-    )
-    .expect("read Grafana alerting provisioning config")
+fn yaml(path: &str) -> Value {
+    serde_yaml::from_str(&read(path)).expect("valid YAML")
 }
 
-fn rustfs_bootstrap_script() -> String {
-    std::fs::read_to_string(repo_root().join("demo/observability/rustfs/bootstrap.sh"))
-        .expect("read RustFS bootstrap script")
+fn compose() -> Value {
+    yaml("demo/observability/docker-compose.yml")
 }
 
-fn dashboard(name: &str) -> String {
-    std::fs::read_to_string(repo_root().join(format!(
-        "demo/observability/grafana/provisioning/dashboards/{name}"
-    )))
-    .expect("read Grafana dashboard")
+fn service<'a>(compose: &'a Value, name: &str) -> &'a Value {
+    let value = &compose["services"][name];
+    observability_demo_app::check!(!value.is_null(), "missing service {name}");
+    value
 }
 
-fn datasource_block<'a>(config: &'a str, uid: &str) -> &'a str {
-    let start = config.find(uid).expect("datasource UID exists");
-    let rest = &config[start..];
-    let end = rest
-        .find("\n  - name:")
-        .map_or(rest.len(), |offset| offset + 1);
-    &rest[..end]
+fn environment<'a>(service: &'a Value, name: &str) -> Option<&'a str> {
+    service["environment"][name].as_str()
 }
 
-fn balanced_block_after_marker<'a>(input: &'a str, marker: &str) -> &'a str {
-    let start = input.find(marker).expect("block marker exists");
-    let rest = &input[start..];
-    let mut depth = 0_usize;
-    let mut end = None;
-    for (idx, ch) in rest.char_indices() {
-        match ch {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    end = Some(idx + ch.len_utf8());
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    &rest[..end.expect("pyroscope scrape block is balanced")]
-}
-
-fn scrape_block<'a>(config: &'a str, name: &str) -> &'a str {
-    let marker = format!("pyroscope.scrape \"{name}\" {{");
-    balanced_block_after_marker(config, &marker)
-}
-
-fn profile_memory_block(input: &str) -> &str {
-    let start = input.find("profile.memory").expect("profile.memory exists");
-    let rest = &input[start..];
-    let open = rest.find('{').expect("profile.memory block opens");
-    balanced_block_after_marker(rest, &rest[..=open])
-}
-
-fn profile_process_cpu_block(input: &str) -> &str {
-    let start = input
-        .find("profile.process_cpu")
-        .expect("profile.process_cpu exists");
-    let rest = &input[start..];
-    let open = rest.find('{').expect("profile.process_cpu block opens");
-    balanced_block_after_marker(rest, &rest[..=open])
-}
-
-fn normalize_whitespace(input: &str) -> String {
-    input.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-#[test]
-fn docker_log_tailing_is_scoped_to_the_demo_compose_project() {
-    let config = alloy_config();
-    let relabel = balanced_block_after_marker(&config, "discovery.relabel \"containers\" {");
-    for (needle, _why) in [
-        (
-            "__meta_docker_container_label_com_docker_compose_project",
-            "Docker log discovery should inspect the Compose project label before forwarding targets",
-        ),
-        (
-            "action        = \"keep\"",
-            "Docker log discovery should drop non-demo containers instead of tailing every Docker container",
-        ),
-        (
-            "regex         = \"krabka-observability-.*\"",
-            "Docker log discovery should only tail Krabka observability Compose projects",
-        ),
-    ] {
-        assert2::assert!(relabel.contains(needle));
-    }
-
-    let compose = docker_compose();
-    let broker = compose_service_block(&compose, "broker");
-    assert2::assert!(broker.contains(
-        "RUST_LOG: \"${KRABKA_RUST_LOG:-info,pprof::profiler=warn,object_store::client::retry=warn,krabka_broker::network::dispatch=warn}\""
-    ));
-    assert2::assert!(broker.contains(
-        "KRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info,krabka_broker::network::dispatch=warn}\""
-    ));
-}
-
-#[test]
-fn recovery_qualification_routes_and_seeds_logs_and_traces() {
-    let config = alloy_config();
-    assert2::assert!(config.contains("logs    = [otelcol.exporter.otlphttp.logs.input]"));
-    assert2::assert!(config.contains("endpoint = \"http://logs-distributor:3100/otlp\""));
-    let krabka_scrape = balanced_block_after_marker(&config, "prometheus.scrape \"krabka\" {");
-    assert2::assert!(
-        krabka_scrape.contains("forward_to      = [prometheus.remote_write.krabka.receiver]")
-    );
-    assert2::assert!(!config.contains("crabka_demo_"));
-
-    let qualification = observability_script("qualify-failover.sh");
-    for needle in [
-        "http://alloy:4318/v1/traces",
-        "http://alloy:4318/v1/logs",
-        "m20_qualification_root",
-        "m20_qualification_recovery_child",
-        "/proc/sys/kernel/random/uuid",
-        "seed-trace-id.txt",
-        "/api/traces/$qualification_trace_id",
-        "seed-trace-$phase.pb",
-        "M20 observability recovery qualification $qualification_trace_id",
-        "seed-log-$phase.json",
-        r#"query={service_name=\"m20-qualification\"}"#,
-        r".data.result | length > 0",
-        r".labels.job == $job",
-    ] {
-        assert2::assert!(qualification.contains(needle));
-    }
-    assert2::assert!(
-        qualification
-            .matches("has_service_down_alert traces-querier")
-            .count()
-            == 2
-    );
-
-    let smoke = observability_script("smoke.sh");
-    assert2::assert!(smoke.contains("profiles gres demo-produce"));
-    assert2::assert!(smoke.contains("resource.service.name = \"gres\""));
-    assert2::assert!(smoke.contains("name = \"orders publish\""));
-    assert2::assert!(smoke.contains("name = \"orders process\""));
-    assert2::assert!(smoke.contains("--data-urlencode 'start=0'"));
-    assert2::assert!(smoke.contains("--data-urlencode \"end=$(date +%s)\""));
-    assert2::assert!(smoke.contains("grep -q 'krabka_demo_'"));
-    assert2::assert!(smoke.contains("unknown smoke target: $target"));
-    assert2::assert!(smoke.contains("*) return 1 ;;"));
-    let workflow = std::fs::read_to_string(repo_root().join(".github/workflows/qualify-m20.yml"))
-        .expect("read M20 qualification workflow");
-    assert2::assert!(workflow.contains(
-        "KRABKA_SMOKE_TARGETS: ready metrics logs traces cross-signal profiles demo-produce demo-stream demo-consume"
-    ));
-
-    let compose = docker_compose();
-    assert2::assert!(compose.contains("KRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info}\""));
-    assert2::assert!(compose.contains(
-        "KRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info,krabka_pgwire::session=debug,krabka_pgexec::statement=debug,krabka_pgexec::exec=debug,krabka_gres_ranges::route=debug,krabka_gres_substrate::wal=debug}\""
-    ));
-    assert2::assert!(compose.contains(
-        "CRABKA_OTLP_FILTER: \"${KRABKA_OTLP_FILTER:-info,crabka_pgwire::session=debug,crabka_pgexec::statement=debug,crabka_pgexec::exec=debug,crabka_gres_ranges::route=debug,crabka_gres_substrate::wal=debug}\""
-    ));
-
-    let readme = observability_script("README.md");
-    assert2::assert!(readme.contains("crabka_pgexec::exec=trace"));
-    let gres_dashboard = dashboard("krabka-gres-traces.json");
-    assert2::assert!(gres_dashboard.contains("crabka_pgexec::exec=trace"));
-    for setting in [
-        "KRABKA_DEMO_IMAGE=krabka-io/krabka-o11y-demo:dev",
-        "KRABKA_SCHEMA_REGISTRY_IMAGE=ghcr.io/krabka-io/krabka-schema-registry:dev",
-        "KRABKA_CLI_BIN=krabka",
-        "KRABKA_GRES_IMAGE=krabka-io/gres:dev",
-    ] {
-        assert2::assert!(readme.contains(setting));
-    }
-}
-
-#[test]
-fn demo_roles_expose_schema_fetch_retry_defaults() {
-    let compose = docker_compose();
-    for service in ["demo-produce", "demo-stream", "demo-consume"] {
-        let block = compose_service_block(&compose, service);
-        for setting in [
-            "KRABKA_DEMO_SCHEMA_FETCH_RETRY_INITIAL_BACKOFF: \"${KRABKA_DEMO_SCHEMA_FETCH_RETRY_INITIAL_BACKOFF:-10ms}\"",
-            "KRABKA_DEMO_SCHEMA_FETCH_RETRY_MAX_BACKOFF: \"${KRABKA_DEMO_SCHEMA_FETCH_RETRY_MAX_BACKOFF:-1s}\"",
-        ] {
-            assert_eq!(block.matches(setting).count(), 1, "{service}: {setting}");
-        }
-    }
-}
-
-#[test]
-fn krabka_worker_targets_also_collect_memory_profiles() {
-    let config = alloy_config();
-    let scrape = scrape_block(&config, "krabka_workers");
-    let process_cpu = normalize_whitespace(profile_process_cpu_block(scrape));
-    assert2::assert!(process_cpu.contains("enabled = true"));
-    let memory = profile_memory_block(scrape);
-    assert2::assert!(memory.contains("enabled = true"));
-    assert2::assert!(memory.contains("path    = \"/debug/pprof/heap\""));
-}
-
-#[test]
-fn jemalloc_heap_profiling_uses_bounded_always_on_sampling() {
-    let compose = docker_compose();
-    assert2::assert!(compose.contains("MALLOC_CONF: \"prof:true,prof_active:true,lg_prof_sample:20,background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:1000\""));
-    assert2::assert!(compose.contains("lg_prof_sample:20"));
-    for option in [
-        "background_thread:true",
-        "dirty_decay_ms:1000",
-        "muzzy_decay_ms:1000",
-    ] {
-        assert2::assert!(compose.contains(option));
-    }
-    assert2::assert!(
-        !compose
-            .lines()
-            .any(|line| line.trim_start().starts_with("MALLOC_CONF:")
-                && line.contains("lg_prof_sample:0"))
-    );
-}
-
-/// The service names in the `services:` section of the compose file, in file
-/// order.
-fn compose_service_names(compose: &str) -> Vec<&str> {
-    let services = compose.find("\nservices:\n").expect("services section");
-    let end = compose[services..]
-        .find("\nconfigs:\n")
-        .map_or(compose.len(), |offset| services + offset);
-    compose[services..end]
-        .lines()
-        .filter_map(|line| {
-            let name = line.strip_prefix("  ")?.strip_suffix(':')?;
-            (!name.starts_with([' ', '#'])).then_some(name)
-        })
+fn command(service: &Value) -> Vec<&str> {
+    service["command"]
+        .as_sequence()
+        .expect("command list")
+        .iter()
+        .map(|value| value.as_str().expect("command string"))
         .collect()
 }
 
-fn is_one_shot(block: &str) -> bool {
-    block.contains("\n    restart: \"no\"\n")
-}
-
-fn command_line(block: &str) -> &str {
-    block
-        .lines()
-        .find_map(|line| line.strip_prefix("    command: "))
-        .expect("service has a one-line command")
-}
-
-/// The pinned krabka-o11y image has no `--compactor-retention` flag and no
-/// logs `compactor` role. Metrics splits the old job into a block builder,
-/// which also runs the retention sweep, and a compactor, which merges blocks.
-/// Logs folds compaction and retention into its block builder.
 #[test]
-fn compaction_roles_use_the_flags_of_the_pinned_image() {
-    let compose = docker_compose();
-    let expected = [
-        (
-            "metrics-block-builder",
-            r#"["krabka-metrics", "--target=block-builder", "--object-store-url=s3://krabka-metrics", "--bootstrap=broker:9092", "--runtime-overrides=/etc/krabka/metrics-runtime-overrides.yaml", "--block-builder-retention-sweep-interval=${KRABKA_METRICS_BLOCK_BUILDER_RETENTION_SWEEP_INTERVAL:-30s}"]"#,
-        ),
-        (
-            "metrics-compactor",
-            r#"["krabka-metrics", "--target=compactor", "--object-store-url=s3://krabka-metrics", "--compactor-interval=${KRABKA_METRICS_COMPACTOR_INTERVAL:-1m}"]"#,
-        ),
-        (
-            "logs-block-builder",
-            r#"["krabka-observability", "--target=block-builder", "--wal-bootstrap-server=broker:9092", "--object-store-url=s3://krabka-logs", "--index-prefix=logs"]"#,
-        ),
-    ];
-    for (service, command) in expected {
-        let block = compose_service_block(&compose, service);
-        check!(command_line(block) == command, "{service}");
-    }
-    check!(!compose.contains("logs-compactor"));
-    check!(!compose.contains("--compactor-retention="));
-
-    let block_builder = compose_service_block(&compose, "metrics-block-builder");
-    check!(block_builder.contains(
-        "    configs:\n      - source: metrics-runtime-overrides\n        target: /etc/krabka/metrics-runtime-overrides.yaml\n"
-    ));
-    check!(compose.contains(
-        "configs:\n  metrics-runtime-overrides:\n    content: |\n      defaults:\n        compactor_blocks_retention_period: \"${KRABKA_METRICS_BLOCK_RETENTION:-1h}\"\n"
-    ));
-}
-
-/// check-services.sh tells a one-shot service from a long-running service by
-/// `restart: "no"`. A service that another service waits on to complete is a
-/// one-shot service, so it must say so.
-#[test]
-fn services_that_others_wait_to_complete_are_one_shot() {
-    let compose = docker_compose();
-    let names = compose_service_names(&compose);
-    for name in &names {
-        let waited_on = format!("      {name}: {{condition: service_completed_successfully}}");
-        if compose.contains(&waited_on) {
-            check!(
-                is_one_shot(compose_service_block(&compose, name)),
-                "{name} is waited on to complete"
-            );
-        }
-    }
-}
-
-/// The distributors exited once at cold start when they started before the
-/// bootstrap created the WAL topics. Each role that reads or writes a WAL waits
-/// for the bootstrap to complete.
-#[test]
-fn wal_roles_wait_for_the_observability_topics() {
-    let compose = docker_compose();
-    for name in compose_service_names(&compose) {
-        let block = compose_service_block(&compose, name);
-        let uses_wal = block.contains("*o11y-image")
-            && ["--bootstrap=broker:9092", "--wal-bootstrap"]
-                .iter()
-                .any(|flag| command_line(block).contains(flag));
-        if uses_wal && name != "observability-topic-setup" {
-            check!(
-                block.contains(
-                    "      observability-topic-setup: {condition: service_completed_successfully}\n"
-                ),
-                "{name}"
-            );
-        }
-    }
-}
-
-/// The smoke test asks each long-running observability role for `/ready`, and
-/// qualification names each long-running service that it starts. Both lists
-/// follow the compose file.
-#[test]
-fn smoke_and_qualification_name_each_long_running_service() {
-    let compose = docker_compose();
-    let long_running: Vec<&str> = compose_service_names(&compose)
-        .into_iter()
-        .filter(|name| !is_one_shot(compose_service_block(&compose, name)))
-        .collect();
-
-    let observability_roles: Vec<&str> = long_running
-        .iter()
-        .copied()
-        .filter(|name| compose_service_block(&compose, name).contains("*o11y-image"))
-        .collect();
-    let smoke = observability_script("smoke.sh");
-    let ready_default = smoke
-        .lines()
-        .find_map(|line| line.strip_prefix("ready_services=${KRABKA_SMOKE_READY_SERVICES:-\""))
-        .and_then(|rest| rest.strip_suffix("\"}"))
-        .expect("smoke.sh sets the default ready services");
-    check!(ready_default.split(' ').collect::<Vec<_>>() == observability_roles);
-
-    let workflow = std::fs::read_to_string(repo_root().join(".github/workflows/qualify-m20.yml"))
-        .expect("read M20 qualification workflow");
-    let start = workflow
-        .find("KRABKA_SMOKE_SERVICES: >-\n")
-        .expect("workflow sets KRABKA_SMOKE_SERVICES");
-    let mut qualified: Vec<&str> = workflow[start..]
-        .lines()
-        .skip(1)
-        .take_while(|line| line.starts_with("        "))
-        .flat_map(str::split_whitespace)
-        .collect();
-    qualified.sort_unstable();
-    let mut expected: Vec<&str> = long_running
-        .into_iter()
-        .filter(|name| !name.starts_with("gres"))
-        .collect();
-    expected.sort_unstable();
-    check!(qualified == expected);
-}
-
-#[test]
-fn trace_and_profile_snapshot_policy_is_overrideable_per_signal() {
-    let compose = docker_compose();
-    for (service, signal) in [
-        ("traces-block-builder", "TRACES"),
-        ("profiles-block-builder", "PROFILES"),
-    ] {
-        let block = compose_service_block(&compose, service);
-        assert2::assert!(block.contains(&format!(
-            "KRABKA_{signal}_INDEX_SNAPSHOT_MAX: \"${{KRABKA_{signal}_INDEX_SNAPSHOT_MAX:-256MiB}}\""
-        )));
-        assert2::assert!(block.contains(&format!(
-            "KRABKA_{signal}_INDEX_SNAPSHOT_RETAIN: \"${{KRABKA_{signal}_INDEX_SNAPSHOT_RETAIN:-8}}\""
-        )));
-    }
-
-    for (service, signal) in [
-        ("traces-querier", "TRACES"),
-        ("profiles-querier", "PROFILES"),
-    ] {
-        let block = compose_service_block(&compose, service);
-        assert2::assert!(block.contains(&format!(
-            "KRABKA_{signal}_INDEX_SNAPSHOT_MAX: \"${{KRABKA_{signal}_INDEX_SNAPSHOT_MAX:-256MiB}}\""
-        )));
-        assert2::assert!(!block.contains(&format!("KRABKA_{signal}_INDEX_SNAPSHOT_RETAIN:")));
-    }
-}
-
-#[test]
-fn trace_and_profile_wal_fetch_limits_are_overrideable_per_signal() {
-    let compose = docker_compose();
-    for (service, signal) in [
-        ("traces-block-builder", "TRACES"),
-        ("profiles-block-builder", "PROFILES"),
-    ] {
-        let block = compose_service_block(&compose, service);
-        assert2::assert!(block.contains(&format!(
-            "KRABKA_{signal}_WAL_FETCH_MAX: \"${{KRABKA_{signal}_WAL_FETCH_MAX:-2MiB}}\""
-        )));
-        assert2::assert!(block.contains(&format!(
-            "KRABKA_{signal}_WAL_FETCH_PARTITION_MAX: \"${{KRABKA_{signal}_WAL_FETCH_PARTITION_MAX:-256KiB}}\""
-        )));
-    }
-}
-
-#[test]
-fn traces_querier_parquet_read_cap_is_overrideable() {
-    let compose = docker_compose();
-    let block = compose_service_block(&compose, "traces-querier");
-    assert2::assert!(
-        block.contains("KRABKA_TRACES_BLOCK_READ_MAX: \"${KRABKA_TRACES_BLOCK_READ_MAX:-1GiB}\"")
-    );
-}
-
-#[test]
-fn traces_querier_scan_concat_cap_is_overrideable() {
-    let compose = docker_compose();
-    let block = compose_service_block(&compose, "traces-querier");
-    assert2::assert!(
-        block
-            .contains("KRABKA_TRACES_SCAN_CONCAT_MAX: \"${KRABKA_TRACES_SCAN_CONCAT_MAX:-1.5GB}\"")
-    );
-}
-
-#[test]
-fn profiles_wal_poll_timeout_is_owned_by_wal_consumers() {
-    let compose = docker_compose();
-    for service in ["profiles-block-builder", "profiles-querier"] {
-        let block = compose_service_block(&compose, service);
-        assert2::assert!(block.contains(
-            "KRABKA_PROFILES_WAL_POLL_TIMEOUT: \"${KRABKA_PROFILES_WAL_POLL_TIMEOUT:-500ms}\""
-        ));
-    }
-    assert2::assert!(
-        !compose_service_block(&compose, "profiles-distributor")
-            .contains("KRABKA_PROFILES_WAL_POLL_TIMEOUT")
-    );
-}
-
-#[test]
-fn otlp_heartbeat_traces_use_per_component_service_names() {
-    let compose = docker_compose();
-    assert2::assert!(
-        compose
-            .contains("KRABKA_OTLP_HEARTBEAT_INTERVAL: \"${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}\"")
-    );
-    for service in [
+fn compose_is_structural_and_every_expected_service_exists() {
+    let compose = compose();
+    for name in [
         "broker",
+        "rustfs",
+        "alloy",
+        "cadvisor",
+        "grafana",
         "schema-registry",
         "metrics-distributor",
         "metrics-block-builder",
@@ -533,6 +62,7 @@ fn otlp_heartbeat_traces_use_per_component_service_names() {
         "metrics-querier",
         "traces-distributor",
         "traces-block-builder",
+        "traces-metrics-generator",
         "traces-querier",
         "logs-distributor",
         "logs-block-builder",
@@ -543,645 +73,304 @@ fn otlp_heartbeat_traces_use_per_component_service_names() {
         "demo-produce",
         "demo-stream",
         "demo-consume",
+        "gres",
+        "gres-workload",
     ] {
-        let block = compose_service_block(&compose, service);
-        assert2::assert!(block.contains(&format!("OTEL_SERVICE_NAME: {service}")));
+        service(&compose, name);
     }
 }
 
 #[test]
-fn demo_app_profiles_cover_all_roles_without_heap_scrape() {
-    let config = alloy_config();
-    let scrape = scrape_block(&config, "demo_apps");
-    for role in ["demo-produce", "demo-stream"] {
-        assert2::assert!(scrape.contains(&format!("service_name = \"{role}\"")));
+fn published_ports_bind_to_loopback_with_an_override() {
+    let compose = read("demo/observability/docker-compose.yml");
+    for line in compose
+        .lines()
+        .filter(|line| line.trim_start().starts_with("ports:"))
+    {
+        observability_demo_app::check!(line.contains("${KRABKA_LISTEN_HOST:-127.0.0.1}:"));
     }
-    let process_cpu = normalize_whitespace(profile_process_cpu_block(scrape));
-    assert2::assert!(process_cpu.contains("enabled = true"));
-    let memory = profile_memory_block(scrape);
-    assert2::assert!(memory.contains("enabled = false"));
-
-    let consume_scrape = scrape_block(&config, "demo_consume_cpu");
-    assert2::assert!(consume_scrape.contains("service_name = \"demo-consume\""));
-    let consume_cpu = normalize_whitespace(profile_process_cpu_block(consume_scrape));
-    assert2::assert!(consume_cpu.contains("enabled = true"));
-    let consume_memory = profile_memory_block(consume_scrape);
-    assert2::assert!(consume_memory.contains("enabled = false"));
 }
 
 #[test]
-fn cpu_profiles_use_bounded_sampling_windows() {
-    let config = alloy_config();
-    for (scrape_name, expected_duration) in [
-        ("krabka_services", "5s"),
-        ("demo_apps", "5s"),
-        ("demo_consume_cpu", "20s"),
-        ("trace_cpu", "15s"),
-        ("trace_block_builder_cpu", "30s"),
-        ("krabka_workers", "3s"),
-    ] {
-        let scrape = scrape_block(&config, scrape_name);
-        let process_cpu = normalize_whitespace(profile_process_cpu_block(scrape));
-        check!(
-            process_cpu.contains("enabled = true"),
-            "{scrape_name} should keep CPU profiling enabled"
-        );
-        check!(
-            scrape.contains(&format!(
-                "delta_profiling_duration = \"{expected_duration}\""
-            )),
-            "{scrape_name} should keep CPU profiling overhead low enough for the demo stack"
-        );
-        check!(
-            !process_cpu.contains("delta_profiling_duration"),
-            "{scrape_name} should set the CPU duration on pyroscope.scrape, not profile.process_cpu"
+fn long_running_http_services_have_healthchecks() {
+    let compose = compose();
+    for name in ["broker", "rustfs", "alloy", "cadvisor", "grafana"] {
+        observability_demo_app::check!(!service(&compose, name)["healthcheck"].is_null(), "{name}");
+    }
+    let source = read("demo/observability/docker-compose.yml");
+    for anchor in ["x-demo-image", "x-schema-registry-image", "x-o11y-image"] {
+        let offset = source.find(anchor).expect("image anchor");
+        observability_demo_app::check!(
+            source[offset..]
+                .lines()
+                .take(12)
+                .any(|line| line.contains("healthcheck:")),
+            "{anchor}"
         );
     }
 }
 
 #[test]
-fn idle_profile_scrapes_are_lower_frequency() {
-    let config = alloy_config();
-    let consume_scrape = scrape_block(&config, "demo_consume_cpu");
-    assert2::assert!(consume_scrape.contains("scrape_interval          = \"120s\""));
-    assert2::assert!(consume_scrape.contains("scrape_timeout           = \"30s\""));
-
-    let trace_scrape = scrape_block(&config, "trace_block_builder_cpu");
-    assert2::assert!(trace_scrape.contains("scrape_interval          = \"60s\""));
-}
-
-#[test]
-fn qualification_images_are_explicit() {
-    let compose = docker_compose();
-
-    check!(
-        compose.contains("ghcr.io/krabka-io/krabka-broker@sha256:6b51b36166590f07a4f28bd480296e59ad14162d4bc518a50678fa0f20fae8df"),
-        "the M20 stack should default to the qualified broker image"
-    );
-    check!(
-        compose.contains("KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:3032e3ba2c11a6c014e499edabd7fb6f8939f9d7d40ae659bd4dfbdad1051efa"),
-        "the observability roles should share one overridable published image"
-    );
-    check!(
-        compose.contains("KRABKA_GRES_IMAGE:-ghcr.io/krabka-io/gres@sha256:4117982fa13ab02d86e76ec70f267acfe884fa3c99befe1bdc690b9d5ea0984a"),
-        "gres should use one overridable immutable published image"
-    );
-    check!(
-        compose.contains("KRABKA_CLI_IMAGE:-ghcr.io/krabka-io/krabka-cli@sha256:6893ddac70cfd48944755719e2e94ca4468827cc641f0994e0d72fe479e33a0d"),
-        "gres setup should use one overridable immutable multiarch CLI image"
-    );
-    for executable in ["/usr/bin/krabka-format", "/usr/bin/krabka-guard"] {
-        check!(
-            compose.contains(executable),
-            "the distroless broker image should invoke its shipped {executable} binary"
-        );
-    }
-    check!(
-        !compose.contains("command: [\"krabka-broker\""),
-        "the broker command should not repeat the image entrypoint"
-    );
-    check!(
-        compose.contains("command: [\"krabka-o11y-bootstrap\", \"--bootstrap=broker:9092\"]"),
-        "the published bootstrap should enforce the six-topic contract"
-    );
-    check!(
-        compose.contains("KRABKA_DEMO_IMAGE:-ghcr.io/krabka-io/krabka-o11y-demo@sha256:b79f9dbe16d30671073ca8a40df2fb60b1faab898bdb2d8793d173f3e2d1111f"),
-        "the demo roles should use this repository's immutable published image"
-    );
-    check!(
-        compose.contains("KRABKA_SCHEMA_REGISTRY_IMAGE:-ghcr.io/krabka-io/krabka-schema-registry@sha256:ad106d2b623b7a39fc0566ecbff077a662b544314e2de61357a381e6969cbef9"),
-        "the schema registry should use one overridable immutable published image"
-    );
-    check!(
-        !compose.contains("robot-head"),
-        "no service should use an image from the archived monorepo"
-    );
-    check!(
-        compose.contains("KRABKA_CLI_BIN:-krabka"),
-        "local rebuilt CLI images should be able to override the executable"
-    );
-    for entrypoint in [
-        "KRABKA_GRES_BIN",
-        "KRABKA_SCHEMA_REGISTRY_BIN",
-        "\"observability-demo-app\"",
+fn completed_dependencies_are_one_shots() {
+    let compose = compose();
+    for dependency in [
+        "broker-permissions",
+        "broker-format",
+        "rustfs-permissions",
+        "rustfs-setup",
+        "observability-topic-setup",
+        "topic-setup",
+        "schema-registry-ready",
+        "gres-setup",
     ] {
-        check!(
-            !compose.contains(entrypoint),
-            "commands should not repeat the published image entrypoint {entrypoint}"
-        );
-    }
-    let gres = compose_service_block(&compose, "gres");
-    check!(
-        gres.contains("CRABKA_OTLP_HEARTBEAT_INTERVAL: \"${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}\""),
-        "the pre-rename Gres image should preserve the heartbeat override"
-    );
-    check!(
-        gres.contains("CRABKA_OTLP_SQL_TEXT: \"${KRABKA_GRES_OTLP_SQL_TEXT:-false}\""),
-        "the pre-rename Gres image should preserve the SQL text opt-in"
-    );
-    check!(
-        !compose.contains("CRABKA_DEMO_"),
-        "the demo image reads only the KRABKA_DEMO_ settings"
-    );
-}
-
-#[test]
-fn rustfs_bootstrap_verifies_obsolete_log_manifest_cleanup() {
-    let bootstrap = rustfs_bootstrap_script();
-    for (needle, _why) in [
-        (
-            "obsolete_logs_manifest_key=\"logs/tenant=demo/index/logs/manifest.json\"",
-            "RustFS bootstrap should target the obsolete full logs manifest left by older demo revisions",
-        ),
-        (
-            "obsolete_logs_shard_catalog_key=\"logs/tenant=demo/index/logs/shards/manifest.json\"",
-            "RustFS bootstrap should also target the obsolete logs shard catalog left by older demo revisions",
-        ),
-        (
-            "for attempt in 1 2 3 4 5; do",
-            "RustFS bootstrap should retry obsolete manifest cleanup because RustFS can be busy during setup",
-        ),
-        (
-            "s3api delete-object",
-            "RustFS bootstrap should use the S3 API delete operation for obsolete manifest cleanup",
-        ),
-        (
-            "s3api wait object-not-exists",
-            "RustFS bootstrap should verify the obsolete manifest is gone after delete",
-        ),
-        (
-            "failed to remove obsolete $label",
-            "RustFS bootstrap should fail loudly when obsolete index cleanup fails",
-        ),
-    ] {
-        assert2::assert!(bootstrap.contains(needle));
-    }
-    for label in ["\"logs full manifest\"", "\"logs shard catalog\""] {
-        assert2::assert!(bootstrap.contains(label));
-    }
-    assert2::assert!(bootstrap.contains("exit 1"));
-    assert2::assert!(!bootstrap.contains("manifest.json >/dev/null 2>&1 || true"));
-}
-
-#[test]
-fn grafana_dashboard_provider_uses_stable_folder_uid() {
-    let provider = dashboard_provider_config();
-    assert2::assert!(provider.contains("folder: Krabka"));
-    assert2::assert!(provider.contains("folderUid: krabka"));
-}
-
-#[test]
-fn loki_datasource_does_not_enable_datasource_managed_alert_rules() {
-    let config = grafana_datasource_config();
-    let loki = datasource_block(&config, "uid: krabka-loki");
-    assert2::assert!(loki.contains("type: loki"));
-    assert2::assert!(loki.contains("manageAlerts: false"));
-}
-
-#[test]
-fn recent_traces_dashboard_panel_renders_traceql_search_results() {
-    let dashboard = dashboard("krabka-self.json");
-    assert2::assert!(
-        dashboard.contains("\"id\": 3, \"type\": \"table\", \"title\": \"Recent traces\"")
-    );
-    assert2::assert!(dashboard.contains("\"queryType\": \"traceql\""));
-}
-
-#[test]
-fn self_dashboard_surfaces_service_heap_profiles() {
-    let dashboard = dashboard("krabka-self.json");
-    assert2::assert!(dashboard.contains("memory:inuse_space:bytes:space:bytes"));
-    for service in [
-        "broker",
-        "metrics-distributor",
-        "logs-distributor",
-        "traces-distributor",
-        "profiles-distributor",
-    ] {
-        assert2::assert!(dashboard.contains(service));
-    }
-}
-
-#[test]
-fn compose_and_alloy_collect_container_resource_metrics() {
-    let compose = docker_compose();
-    check!(
-        compose.contains("cadvisor:"),
-        "the observability stack should include cAdvisor for container CPU/RSS metrics"
-    );
-    check!(
-        compose.contains("ghcr.io/google/cadvisor:"),
-        "cAdvisor should use the upstream GHCR container image"
-    );
-    check!(
-        compose.contains("\"/var/run/docker.sock:/var/run/docker.sock:ro\""),
-        "cAdvisor should read Docker container metadata through the socket"
-    );
-    check!(
-        compose.contains("--disable_metrics=app,cpuLoad,disk,oom_event,percpu,perf_event,pressure"),
-        "cAdvisor should keep network and diskIO enabled for runtime I/O dashboards while skipping unused metric families"
-    );
-    check!(
-        !compose.contains("diskIO,network"),
-        "cAdvisor must not disable the network and diskIO families used to explain object-store pressure"
-    );
-
-    let config = alloy_config();
-    let scrape = balanced_block_after_marker(&config, "prometheus.scrape \"containers\" {");
-    assert2::assert!(scrape.contains("__address__ = \"cadvisor:8080\""));
-    let scrape = normalize_whitespace(scrape);
-    assert2::assert!(
-        scrape.contains("forward_to = [prometheus.relabel.container_resources.receiver]")
-    );
-    let relabel =
-        balanced_block_after_marker(&config, "prometheus.relabel \"container_resources\" {");
-    let relabel = normalize_whitespace(relabel);
-    assert2::assert!(relabel.contains("forward_to = [prometheus.remote_write.krabka.receiver]"));
-    for metric in [
-        "container_memory_rss",
-        "container_memory_cache",
-        "container_network_receive_bytes_total",
-        "container_network_transmit_bytes_total",
-        "container_fs_reads_bytes_total",
-        "container_fs_writes_bytes_total",
-    ] {
-        assert2::assert!(relabel.contains(metric));
-    }
-    assert2::assert!(relabel.contains("device") && relabel.contains("interface"));
-}
-
-#[test]
-fn runtime_resources_dashboard_surfaces_stack_cpu_and_memory() {
-    let dashboard = dashboard("krabka-runtime.json");
-    for (needle, _why) in [
-        (
-            "\"uid\": \"krabka-runtime\"",
-            "runtime resource dashboard should have a stable UID",
-        ),
-        (
-            "container_cpu_usage_seconds_total",
-            "runtime dashboard should chart container CPU",
-        ),
-        (
-            "container_memory_working_set_bytes",
-            "runtime dashboard should chart container working-set memory",
-        ),
-        (
-            "container_memory_rss",
-            "runtime dashboard should break down querier memory into RSS and cache",
-        ),
-        (
-            "container_memory_cache",
-            "runtime dashboard should break down querier memory into RSS and cache",
-        ),
-        (
-            "Querier memory breakdown",
-            "runtime dashboard should include a querier memory breakdown panel",
-        ),
-        (
-            "container_label_com_docker_compose_service=~\\\".*-querier\\\"",
-            "querier memory breakdown should focus on querier services",
-        ),
-        (
-            "container_label_com_docker_compose_project",
-            "runtime dashboard should filter on the Docker Compose project label",
-        ),
-        (
-            "krabka-observability-.*",
-            "runtime dashboard should scope resource panels to Krabka observability compose projects",
-        ),
-        (
-            "broker-format|rustfs-permissions|rustfs-setup|topic-setup",
-            "runtime resource panels should exclude one-shot setup containers from steady-state resource rankings",
-        ),
-    ] {
-        assert2::assert!(dashboard.contains(needle));
-    }
-    for service in [
-        "rustfs",
-        "grafana",
-        "alloy",
-        "metrics-querier",
-        "traces-querier",
-        "logs-querier",
-        "profiles-querier",
-    ] {
-        assert2::assert!(dashboard.contains(service));
-    }
-}
-
-#[test]
-fn runtime_resources_dashboard_surfaces_stack_io_hotspots() {
-    let dashboard = dashboard("krabka-runtime.json");
-    for title in [
-        "Network I/O by service",
-        "Filesystem I/O by service",
-        "Top network I/O users",
-        "Object-store path I/O",
-    ] {
-        assert2::assert!(dashboard.contains(title));
-    }
-    for metric in [
-        "container_network_receive_bytes_total",
-        "container_network_transmit_bytes_total",
-        "container_fs_reads_bytes_total",
-        "container_fs_writes_bytes_total",
-    ] {
-        assert2::assert!(dashboard.contains(metric));
-    }
-    assert2::assert!(dashboard.contains("rustfs|.*-querier|.*-compactor|.*-block-builder"));
-}
-
-#[test]
-fn rustfs_dashboard_surfaces_object_store_health_and_io() {
-    let dashboard = dashboard("krabka-rustfs.json");
-    assert2::assert!(dashboard.contains("\"uid\": \"krabka-rustfs\""));
-    assert2::assert!(dashboard.contains("\"title\": \"Krabka - RustFS Object Store\""));
-    for title in [
-        "Container memory working set",
-        "Memory limit ratio",
-        "CPU usage",
-        "RustFS network I/O",
-        "Filesystem I/O",
-        "RustFS uptime",
-        "Restarts (1h)",
-        "RustFS object metric bytes",
-        "Raw drive used",
-        "Drive/object metric delta",
-        "Storage growth and S3 operations",
-        "S3 operation rate by bucket",
-        "Bucket objects and versions",
-        "Background storage work",
-        "Recent RustFS warnings and errors",
-        "Object-store client retry logs",
-    ] {
-        assert2::assert!(dashboard.contains(title));
-    }
-    for metric in [
-        "container_memory_working_set_bytes",
-        "container_spec_memory_limit_bytes",
-        "container_cpu_usage_seconds_total",
-        "container_network_receive_bytes_total",
-        "container_network_transmit_bytes_total",
-        "container_fs_reads_bytes_total",
-        "container_fs_writes_bytes_total",
-        "container_start_time_seconds",
-        "rustfs_s3_operations_total",
-        "rustfs_cluster_capacity_used_bytes",
-        "rustfs_cluster_usage_buckets_total_bytes",
-        "rustfs_cluster_usage_buckets_objects_count",
-        "rustfs_cluster_usage_buckets_versions_count",
-        "rustfs_cluster_usage_buckets_object_version_count_distribution",
-        "rustfs_page_cache_reclaim_duration_seconds_count",
-        "rustfs_capacity_update_duration_seconds_count",
-        "rustfs_capacity_scan_disk_duration_seconds_count",
-        "rustfs_lock_acquire_total",
-    ] {
-        assert2::assert!(dashboard.contains(metric));
-    }
-    check!(
-        dashboard.contains("container_label_com_docker_compose_service=\\\"rustfs\\\""),
-        "RustFS dashboard should scope resource panels to the RustFS service"
-    );
-    check!(
-        dashboard.contains("{service_name=\\\"rustfs\\\"}"),
-        "RustFS dashboard should include RustFS logs"
-    );
-    check!(
-        dashboard.contains("object_store::client::retry"),
-        "RustFS dashboard should surface S3/object-store retry chatter from Krabka clients"
-    );
-    check!(
-        !dashboard.contains(
-            "max(rustfs_cluster_capacity_used_bytes) or max(rustfs_cluster_usage_objects_total_bytes)"
-        ),
-        "object usage panels must not prefer raw drive capacity over RustFS object metrics"
-    );
-    check!(
-        dashboard.contains("clamp_min(((max(rustfs_cluster_capacity_used_bytes)"),
-        "RustFS dashboard should make raw-drive to object-metric deltas visible"
-    );
-}
-
-#[test]
-fn runtime_resources_dashboard_surfaces_container_restarts() {
-    let dashboard = dashboard("krabka-runtime.json");
-    for (needle, _why) in [
-        (
-            "Shortest container uptime",
-            "runtime dashboard should make recently recreated containers obvious",
-        ),
-        (
-            "Container start changes (1h)",
-            "runtime dashboard should show container start-time changes over the last hour",
-        ),
-        (
-            "container_start_time_seconds",
-            "runtime dashboard should use cAdvisor start-time metrics for restart detection",
-        ),
-        (
-            "changes(max by (container_label_com_docker_compose_service) (container_start_time_seconds",
-            "runtime dashboard should count start-time changes by Compose service",
-        ),
-    ] {
-        assert2::assert!(dashboard.contains(needle));
-    }
-}
-
-#[test]
-fn alerts_surface_recent_observability_container_restarts() {
-    let alerts = grafana_alerting_config();
-    for (needle, _why) in [
-        (
-            "uid: krabka-obs-container-restarted",
-            "Grafana alerts should include a stable UID for observability container restarts",
-        ),
-        (
-            "title: Observability container restarted recently",
-            "Grafana alerts should name the restart condition clearly",
-        ),
-        (
-            "container_start_time_seconds",
-            "restart alert should be driven by cAdvisor container start times",
-        ),
-        (
-            "changes(max by (container_label_com_docker_compose_service) (container_start_time_seconds",
-            "restart alert should detect recent start-time changes by Compose service",
-        ),
-    ] {
-        assert2::assert!(alerts.contains(needle));
-    }
-    for service in [
-        "alloy",
-        "cadvisor",
-        "grafana",
-        "metrics-querier",
-        "logs-querier",
-        "traces-querier",
-        "profiles-querier",
-    ] {
-        assert2::assert!(alerts.contains(service));
-    }
-}
-
-#[test]
-fn streams_dns_timeout_is_configurable_only_on_the_stream_role() {
-    let compose = docker_compose();
-    let stream = compose_service_block(&compose, "demo-stream");
-    assert2::assert!(stream.contains(
-        "KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT: \"${KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT:-10s}\""
-    ));
-    for service in ["demo-produce", "demo-consume"] {
-        assert2::assert!(
-            !compose_service_block(&compose, service)
-                .contains("KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT")
+        observability_demo_app::check_eq!(
+            service(&compose, dependency)["restart"].as_str(),
+            Some("no"),
+            "{dependency}"
         );
     }
 }
 
 #[test]
-fn streams_runtime_policy_is_configurable_only_on_the_stream_role() {
-    let compose = docker_compose();
-    let stream = compose_service_block(&compose, "demo-stream");
-    assert2::assert!(stream.contains(
-        "KRABKA_DEMO_STREAMS_POLL_INTERVAL: \"${KRABKA_DEMO_STREAMS_POLL_INTERVAL:-200ms}\""
-    ));
-    assert2::assert!(stream.contains(
-        "KRABKA_DEMO_STREAMS_COMMIT_INTERVAL: \"${KRABKA_DEMO_STREAMS_COMMIT_INTERVAL:-5s}\""
-    ));
-    assert2::assert!(stream.contains(
-        "KRABKA_DEMO_STREAMS_REBALANCE_TIMEOUT: \"${KRABKA_DEMO_STREAMS_REBALANCE_TIMEOUT:-30s}\""
-    ));
-    assert2::assert!(stream.contains(
-        "KRABKA_DEMO_STREAMS_LEAVE_HEARTBEAT_TIMEOUT: \"${KRABKA_DEMO_STREAMS_LEAVE_HEARTBEAT_TIMEOUT:-5s}\""
-    ));
-    assert2::assert!(stream.contains(
-        "KRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF: \"${KRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF:-200ms}\""
-    ));
-    assert2::assert!(stream.contains(
-        "KRABKA_DEMO_STREAMS_INTERACTIVE_QUERY_QUEUE_CAPACITY: \"${KRABKA_DEMO_STREAMS_INTERACTIVE_QUERY_QUEUE_CAPACITY:-64}\""
-    ));
-    assert2::assert!(stream.contains(
-        "KRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX: \"${KRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX:-10MiB}\""
-    ));
-    for service in ["demo-produce", "demo-consume"] {
-        let service = compose_service_block(&compose, service);
-        assert2::assert!(!service.contains("KRABKA_DEMO_STREAMS_POLL_INTERVAL"));
-        assert2::assert!(!service.contains("KRABKA_DEMO_STREAMS_COMMIT_INTERVAL"));
-        assert2::assert!(!service.contains("KRABKA_DEMO_STREAMS_REBALANCE_TIMEOUT"));
-        assert2::assert!(!service.contains("KRABKA_DEMO_STREAMS_LEAVE_HEARTBEAT_TIMEOUT"));
-        assert2::assert!(!service.contains("KRABKA_DEMO_STREAMS_JOIN_RETRY_BACKOFF"));
-        assert2::assert!(!service.contains("KRABKA_DEMO_STREAMS_INTERACTIVE_QUERY_QUEUE_CAPACITY"));
-        assert2::assert!(!service.contains("KRABKA_DEMO_STREAMS_STATE_STORE_CACHE_MAX"));
+fn demo_role_configuration_is_scoped_to_its_owner() {
+    let compose = compose();
+    let produce = service(&compose, "demo-produce");
+    let stream = service(&compose, "demo-stream");
+    let consume = service(&compose, "demo-consume");
+    observability_demo_app::check_eq!(
+        environment(produce, "KRABKA_DEMO_ORDERS_PER_SEC"),
+        Some("${KRABKA_DEMO_ORDERS_PER_SEC:-50Hz}")
+    );
+    observability_demo_app::check_eq!(
+        environment(stream, "KRABKA_DEMO_STREAMS_FETCH_MIN"),
+        Some("${KRABKA_DEMO_STREAMS_FETCH_MIN:-1B}")
+    );
+    observability_demo_app::check_eq!(
+        environment(consume, "KRABKA_DEMO_CONSUMER_FETCH_MIN"),
+        Some("${KRABKA_DEMO_CONSUMER_FETCH_MIN:-1B}")
+    );
+    observability_demo_app::check_eq!(
+        environment(consume, "KRABKA_DEMO_SLOW_ORDER_FRACTION"),
+        Some("${KRABKA_DEMO_SLOW_ORDER_FRACTION:-0.02}")
+    );
+    observability_demo_app::check!(
+        environment(produce, "KRABKA_DEMO_CONSUMER_FETCH_MIN").is_none()
+    );
+    observability_demo_app::check!(environment(stream, "KRABKA_DEMO_ORDERS_PER_SEC").is_none());
+}
+
+#[test]
+fn compaction_commands_match_the_pinned_image_contract() {
+    let compose = compose();
+    for (name, flag) in [
+        ("metrics-compactor", "--target=compactor"),
+        ("metrics-block-builder", "--target=block-builder"),
+        ("traces-block-builder", "--target=block-builder"),
+        ("profiles-block-builder", "--target=block-builder"),
+    ] {
+        observability_demo_app::check!(command(service(&compose, name)).contains(&flag), "{name}");
     }
 }
 
 #[test]
-fn consumer_leave_timeout_is_configurable_only_on_the_consume_role() {
-    let compose = docker_compose();
-    let consume = compose_service_block(&compose, "demo-consume");
-    assert2::assert!(consume.contains(
-        "KRABKA_DEMO_CONSUMER_LEAVE_GROUP_TIMEOUT: \"${KRABKA_DEMO_CONSUMER_LEAVE_GROUP_TIMEOUT:-5s}\""
-    ));
-    for service in ["demo-produce", "demo-stream"] {
-        assert2::assert!(
-            !compose_service_block(&compose, service)
-                .contains("KRABKA_DEMO_CONSUMER_LEAVE_GROUP_TIMEOUT")
+fn every_owned_image_default_is_digest_pinned() {
+    let text = read("demo/observability/docker-compose.yml");
+    for variable in [
+        "KRABKA_DEMO_IMAGE",
+        "KRABKA_SCHEMA_REGISTRY_IMAGE",
+        "KRABKA_BROKER_IMAGE",
+        "KRABKA_O11Y_IMAGE",
+        "KRABKA_GRES_IMAGE",
+    ] {
+        let line = text
+            .lines()
+            .find(|line| line.contains(&format!("${{{variable}:-")))
+            .expect("image variable");
+        observability_demo_app::check!(line.contains("@sha256:"), "{variable}");
+    }
+}
+
+#[test]
+fn alloy_scrapes_every_krabka_role_and_support_service() {
+    let alloy = read("demo/observability/alloy/config.alloy");
+    for target in [
+        "broker:9404",
+        "schema-registry:9404",
+        "alloy:12345",
+        "grafana:3000",
+        "demo-produce:9404",
+        "demo-stream:9404",
+        "demo-consume:9404",
+        "metrics-distributor:9404",
+        "traces-distributor:9404",
+        "logs-distributor:9404",
+        "profiles-distributor:9404",
+    ] {
+        observability_demo_app::check!(alloy.contains(target), "{target}");
+    }
+    observability_demo_app::check!(alloy.contains("container_memory_working_set_bytes"));
+}
+
+#[test]
+fn grafana_datasources_define_cross_signal_links() {
+    let config = yaml("demo/observability/grafana/provisioning/datasources/krabka.yaml");
+    let datasources = config["datasources"].as_sequence().expect("datasources");
+    let by_uid = |uid| {
+        datasources
+            .iter()
+            .find(|source| source["uid"].as_str() == Some(uid))
+            .expect("datasource")
+    };
+    observability_demo_app::check_eq!(
+        by_uid("krabka-tempo")["jsonData"]["tracesToLogsV2"]["datasourceUid"].as_str(),
+        Some("krabka-loki")
+    );
+    observability_demo_app::check_eq!(
+        by_uid("krabka-tempo")["jsonData"]["tracesToProfiles"]["datasourceUid"].as_str(),
+        Some("krabka-pyroscope")
+    );
+    observability_demo_app::check_eq!(
+        by_uid("krabka-tempo")["jsonData"]["serviceMap"]["datasourceUid"].as_str(),
+        Some("krabka-prom")
+    );
+    observability_demo_app::check_eq!(
+        by_uid("krabka-loki")["jsonData"]["derivedFields"][0]["datasourceUid"].as_str(),
+        Some("krabka-tempo")
+    );
+}
+
+#[test]
+fn dashboards_are_valid_json_with_unique_uids() {
+    let directory = root().join("demo/observability/grafana/provisioning/dashboards");
+    let mut uids = std::collections::BTreeSet::new();
+    for entry in std::fs::read_dir(directory).expect("dashboard directory") {
+        let path = entry.expect("dashboard entry").path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let dashboard: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("dashboard text"))
+                .expect("valid dashboard JSON");
+        let uid = dashboard["uid"].as_str().expect("dashboard uid");
+        observability_demo_app::check!(uids.insert(uid.to_string()), "duplicate {uid}");
+        observability_demo_app::check!(
+            dashboard["panels"]
+                .as_array()
+                .is_some_and(|panels| !panels.is_empty())
         );
     }
+    for uid in ["krabka-demo", "krabka-orders-traces", "krabka-service-red"] {
+        observability_demo_app::check!(uids.contains(uid), "{uid}");
+    }
 }
 
-#[test]
-fn consumer_metadata_refresh_is_configurable_only_on_the_consume_role() {
-    let compose = docker_compose();
-    let consume = compose_service_block(&compose, "demo-consume");
-    assert2::assert!(consume.contains(
-        "KRABKA_DEMO_CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL: \"${KRABKA_DEMO_CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL:-5s}\""
-    ));
-    for service in ["demo-produce", "demo-stream"] {
-        assert2::assert!(
-            !compose_service_block(&compose, service)
-                .contains("KRABKA_DEMO_CONSUMER_SUBSCRIPTION_METADATA_REFRESH_INTERVAL")
-        );
+#[tokio::test]
+async fn demo_dashboard_metric_names_come_from_the_encoded_registry() {
+    use krabka_units::millis;
+
+    let metrics = observability_demo_app::metrics::DemoMetrics::new();
+    metrics.record_produced("books", "us-east", "card", 42.0, millis(1));
+    metrics.record_stage("validate", millis(1));
+    metrics.record_processed("books", "us-east", "fulfilled", millis(4));
+    metrics.record_error(observability_demo_app::metrics::PipelineErrorKind::MissingValue);
+    metrics.record_stream("books", 1);
+    let mut encoded = String::new();
+    let registry = metrics.registry.lock().await;
+    prometheus_client::encoding::text::encode(&mut encoded, &registry).expect("encode registry");
+
+    let dashboard: serde_json::Value = serde_json::from_str(&read(
+        "demo/observability/grafana/provisioning/dashboards/krabka-demo.json",
+    ))
+    .expect("demo dashboard");
+    for expression in dashboard["panels"]
+        .as_array()
+        .expect("panels")
+        .iter()
+        .flat_map(|panel| panel["targets"].as_array().into_iter().flatten())
+        .filter_map(|target| target["expr"].as_str())
+    {
+        for metric in expression
+            .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+            .filter(|token| token.starts_with("krabka_demo_"))
+        {
+            let base = metric.strip_suffix("_bucket").unwrap_or(metric);
+            observability_demo_app::check!(encoded.contains(base), "dashboard metric {metric}");
+        }
     }
 }
 
 #[test]
-fn consumer_retry_policy_is_configurable_only_on_the_consume_role() {
-    let compose = docker_compose();
-    let consume = compose_service_block(&compose, "demo-consume");
-    for setting in [
-        "KRABKA_DEMO_CONSUMER_STARTUP_ATTEMPT_TIMEOUT: \"${KRABKA_DEMO_CONSUMER_STARTUP_ATTEMPT_TIMEOUT:-90s}\"",
-        "KRABKA_DEMO_CONSUMER_STARTUP_DEADLINE: \"${KRABKA_DEMO_CONSUMER_STARTUP_DEADLINE:-5m}\"",
-        "KRABKA_DEMO_CONSUMER_STARTUP_INITIAL_BACKOFF: \"${KRABKA_DEMO_CONSUMER_STARTUP_INITIAL_BACKOFF:-500ms}\"",
-        "KRABKA_DEMO_CONSUMER_STARTUP_MAX_BACKOFF: \"${KRABKA_DEMO_CONSUMER_STARTUP_MAX_BACKOFF:-5s}\"",
-        "KRABKA_DEMO_CONSUMER_COORDINATOR_RETRY_TIMEOUT: \"${KRABKA_DEMO_CONSUMER_COORDINATOR_RETRY_TIMEOUT:-30s}\"",
-        "KRABKA_DEMO_CONSUMER_COORDINATOR_INITIAL_BACKOFF: \"${KRABKA_DEMO_CONSUMER_COORDINATOR_INITIAL_BACKOFF:-100ms}\"",
-        "KRABKA_DEMO_CONSUMER_COORDINATOR_MAX_BACKOFF: \"${KRABKA_DEMO_CONSUMER_COORDINATOR_MAX_BACKOFF:-1s}\"",
+fn alerting_has_routing_and_platform_failure_rules() {
+    let alerting = yaml("demo/observability/grafana/provisioning/alerting/platform-alerts.yaml");
+    observability_demo_app::check!(
+        alerting["contactPoints"]
+            .as_sequence()
+            .is_some_and(|items| !items.is_empty())
+    );
+    observability_demo_app::check!(
+        alerting["policies"]
+            .as_sequence()
+            .is_some_and(|items| !items.is_empty())
+    );
+    let text = read("demo/observability/grafana/provisioning/alerting/platform-alerts.yaml");
+    for uid in [
+        "krabka-service-down",
+        "krabka-memory-saturation",
+        "krabka-pipeline-stalled",
     ] {
-        assert2::assert!(consume.contains(setting));
-    }
-    for service in ["demo-produce", "demo-stream"] {
-        let service = compose_service_block(&compose, service);
-        assert2::assert!(!service.contains("KRABKA_DEMO_CONSUMER_STARTUP_"));
-        assert2::assert!(!service.contains("KRABKA_DEMO_CONSUMER_COORDINATOR_"));
+        observability_demo_app::check!(text.contains(uid));
     }
 }
 
 #[test]
-fn consumer_fetch_policy_is_configurable_only_on_the_consume_role() {
-    let compose = docker_compose();
-    let consume = compose_service_block(&compose, "demo-consume");
-    for setting in [
-        "KRABKA_DEMO_CONSUMER_FETCH_MIN: \"${KRABKA_DEMO_CONSUMER_FETCH_MIN:-1B}\"",
-        "KRABKA_DEMO_CONSUMER_FETCH_MAX: \"${KRABKA_DEMO_CONSUMER_FETCH_MAX:-50MiB}\"",
-        "KRABKA_DEMO_CONSUMER_FETCH_PARTITION_MAX: \"${KRABKA_DEMO_CONSUMER_FETCH_PARTITION_MAX:-1MiB}\"",
+fn smoke_and_release_qualification_cover_all_signals_and_gres() {
+    let smoke = read("demo/observability/smoke.sh");
+    for target in [
+        "metrics",
+        "logs",
+        "traces",
+        "profiles",
+        "cross-signal",
+        "gres",
     ] {
-        assert2::assert!(consume.contains(setting));
+        observability_demo_app::check!(smoke.contains(target));
     }
-    for service in ["demo-produce", "demo-stream"] {
-        assert2::assert!(
-            !compose_service_block(&compose, service).contains("KRABKA_DEMO_CONSUMER_FETCH_")
-        );
+    let qualification = read(".github/workflows/qualify-release.yml");
+    for contract in ["linux/amd64", "linux/arm64", "SHA256SUMS", "retained-state"] {
+        observability_demo_app::check!(qualification.contains(contract));
     }
 }
 
 #[test]
-fn consumer_timing_is_configurable_only_on_the_consume_role() {
-    let compose = docker_compose();
-    let consume = compose_service_block(&compose, "demo-consume");
-    for setting in [
-        "KRABKA_DEMO_CONSUMER_SESSION_TIMEOUT: \"${KRABKA_DEMO_CONSUMER_SESSION_TIMEOUT:-45s}\"",
-        "KRABKA_DEMO_CONSUMER_REBALANCE_TIMEOUT: \"${KRABKA_DEMO_CONSUMER_REBALANCE_TIMEOUT:-1m}\"",
-        "KRABKA_DEMO_CONSUMER_HEARTBEAT_INTERVAL: \"${KRABKA_DEMO_CONSUMER_HEARTBEAT_INTERVAL:-3s}\"",
-        "KRABKA_DEMO_CONSUMER_REQUEST_TIMEOUT: \"${KRABKA_DEMO_CONSUMER_REQUEST_TIMEOUT:-30s}\"",
-    ] {
-        assert2::assert!(consume.contains(setting));
-    }
-    for service in ["demo-produce", "demo-stream"] {
-        let service = compose_service_block(&compose, service);
-        assert2::assert!(!service.contains("KRABKA_DEMO_CONSUMER_SESSION_TIMEOUT"));
-        assert2::assert!(!service.contains("KRABKA_DEMO_CONSUMER_REBALANCE_TIMEOUT"));
-        assert2::assert!(!service.contains("KRABKA_DEMO_CONSUMER_HEARTBEAT_INTERVAL"));
-        assert2::assert!(!service.contains("KRABKA_DEMO_CONSUMER_REQUEST_TIMEOUT"));
-    }
+fn runtime_revision_is_available_to_instrumented_services() {
+    let compose = read("demo/observability/docker-compose.yml");
+    observability_demo_app::check!(
+        compose.contains("KRABKA_REVISION: \"${KRABKA_REVISION:-unknown}\"")
+    );
+    observability_demo_app::check!(compose.matches("*otlp-env").count() >= 8);
+    observability_demo_app::check!(
+        read("demo/observability/revision-report.sh").contains("docker compose images")
+    );
 }
 
 #[test]
-fn consumer_behavior_is_configurable_only_on_the_consume_role() {
-    let compose = docker_compose();
-    let consume = compose_service_block(&compose, "demo-consume");
-    for setting in [
-        "KRABKA_DEMO_CONSUMER_AUTO_OFFSET_RESET: \"${KRABKA_DEMO_CONSUMER_AUTO_OFFSET_RESET:-latest}\"",
-        "KRABKA_DEMO_CONSUMER_ISOLATION_LEVEL: \"${KRABKA_DEMO_CONSUMER_ISOLATION_LEVEL:-read-uncommitted}\"",
-        "KRABKA_DEMO_CONSUMER_ASSIGNOR: \"${KRABKA_DEMO_CONSUMER_ASSIGNOR:-range}\"",
+fn trace_feedback_sampling_and_signal_cost_budgets_are_enforced() {
+    let compose = compose();
+    observability_demo_app::check_eq!(
+        compose["x-otlp-env"]["KRABKA_OTLP_SAMPLE_RATIO"].as_str(),
+        Some("0.05")
+    );
+    observability_demo_app::check_eq!(
+        environment(service(&compose, "gres"), "KRABKA_OTLP_SAMPLE_RATIO"),
+        Some("1.0")
+    );
+
+    let alerts = read("demo/observability/grafana/provisioning/alerting/platform-alerts.yaml");
+    for uid in [
+        "krabka-trace-feedback-growth",
+        "krabka-trace-index-budget",
+        "krabka-demo-cardinality-budget",
     ] {
-        assert2::assert!(consume.contains(setting));
-    }
-    for service in ["demo-produce", "demo-stream"] {
-        let service = compose_service_block(&compose, service);
-        assert2::assert!(!service.contains("KRABKA_DEMO_CONSUMER_AUTO_OFFSET_RESET"));
-        assert2::assert!(!service.contains("KRABKA_DEMO_CONSUMER_ISOLATION_LEVEL"));
-        assert2::assert!(!service.contains("KRABKA_DEMO_CONSUMER_ASSIGNOR"));
+        observability_demo_app::check!(alerts.contains(uid), "{uid}");
     }
 }

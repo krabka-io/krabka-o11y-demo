@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! Instrumented orders-analytics demo.
 //!
 //! There are three roles. All of them run on krabka-broker with the schema
@@ -32,7 +33,7 @@ use krabka_client_core::{
     ClientFrameMax, ConnectionDispatchQueueCapacity, DEFAULT_CONNECTION_DISPATCH_QUEUE_CAPACITY,
     FetchMinBytes,
 };
-use krabka_client_producer::{Acks, Header, Producer, ProducerRecord};
+use krabka_client_producer::{Acks, Producer, ProducerRecord};
 use krabka_client_streams::{
     ClientDnsTimeout, SchemaSerde, Serde, StreamsCommitInterval,
     StreamsInteractiveQueryQueueCapacity, StreamsJoinRetryBackoff, StreamsLeaveHeartbeatTimeout,
@@ -46,8 +47,11 @@ use krabka_schema_serde::{
 use krabka_units::{fmt::Human as _, parse, prelude::*};
 use observability_demo_app::{
     Order, classify_outcome, is_anomalous,
-    metrics::{DemoMetrics, metrics_router},
+    metrics::{DemoMetrics, PipelineErrorKind, metrics_router},
     order_at,
+    pipeline::{
+        PipelineInputError, StageWork, decode_order, header_value, order_headers, stage_delay,
+    },
 };
 use tracing::Instrument as _;
 
@@ -151,6 +155,14 @@ struct Cli {
     fraud_check_work: Time,
     #[arg(long, env = "KRABKA_DEMO_FULFILL_WORK", default_value = "300us", value_parser = parse_nonnegative_time)]
     fulfill_work: Time,
+    /// Deterministic fraction of orders whose processing stages take 30ms longer.
+    #[arg(
+        long,
+        env = "KRABKA_DEMO_SLOW_ORDER_FRACTION",
+        default_value_t = 0.02,
+        value_parser = parse_fraction
+    )]
+    slow_order_fraction: f64,
     /// Classic Consumer best-effort leave-group timeout.
     #[arg(
         long,
@@ -368,6 +380,17 @@ fn parse_nonnegative_time(value: &str) -> Result<Time, String> {
         return Err("time must not be negative".to_owned());
     }
     Ok(value)
+}
+
+fn parse_fraction(value: &str) -> Result<f64, String> {
+    let fraction = value
+        .parse::<f64>()
+        .map_err(|error| format!("invalid fraction {value:?}: {error}"))?;
+    if (0.0..=1.0).contains(&fraction) {
+        Ok(fraction)
+    } else {
+        Err("fraction must be between 0 and 1 inclusive".into())
+    }
 }
 
 fn client_resource_policy(cli: &Cli) -> (ConnectionDispatchQueueCapacity, ClientFrameMax) {
@@ -808,6 +831,40 @@ fn schema_fetch_retry_policy(cli: &Cli) -> std::io::Result<SchemaFetchRetryPolic
     .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))
 }
 
+struct StreamRuntime {
+    schema_fetch_retry_policy: SchemaFetchRetryPolicy,
+    broker_dns_timeout: ClientDnsTimeout,
+    poll_interval: StreamsPollInterval,
+    commit_interval: StreamsCommitInterval,
+    rebalance_timeout: StreamsRebalanceTimeout,
+    leave_heartbeat_timeout: StreamsLeaveHeartbeatTimeout,
+    join_retry_backoff: StreamsJoinRetryBackoff,
+    query_queue_capacity: StreamsInteractiveQueryQueueCapacity,
+    state_store_cache_max_bytes: StreamsStateStoreCacheMaxBytes,
+    dispatch_queue_capacity: ConnectionDispatchQueueCapacity,
+    frame_max: ClientFrameMax,
+    fetch_min: FetchMinBytes,
+}
+
+struct ConsumerRuntime {
+    schema_fetch_retry_policy: SchemaFetchRetryPolicy,
+    leave_group_timeout: ConsumerLeaveGroupTimeout,
+    metadata_refresh_interval: ConsumerSubscriptionMetadataRefreshInterval,
+    retry_policy: ConsumerRetryPolicy,
+    fetch_min: ByteSize,
+    fetch_max: ByteSize,
+    fetch_partition_max: ByteSize,
+    session_timeout: Time,
+    rebalance_timeout: Time,
+    heartbeat_interval: Time,
+    request_timeout: Time,
+    auto_offset_reset: AutoOffsetReset,
+    isolation_level: IsolationLevel,
+    assignor: Assignor,
+    dispatch_queue_capacity: ConnectionDispatchQueueCapacity,
+    frame_max: ClientFrameMax,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), BoxError> {
     let cli = Cli::parse();
@@ -848,6 +905,12 @@ async fn main() -> Result<(), BoxError> {
         "info",
         "observability-demo-app",
     )?;
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        revision = %std::env::var("KRABKA_REVISION").unwrap_or_else(|_| "unknown".into()),
+        role = ?cli.role,
+        "observability demo revision"
+    );
     // Business metrics on the shared admin port (:9404) so Alloy scrapes them
     // alongside pprof (krabka_demo_* families).
     let metrics = DemoMetrics::new();
@@ -872,42 +935,47 @@ async fn main() -> Result<(), BoxError> {
         Role::Stream => {
             run_stream(
                 &cli,
-                schema_fetch_retry_policy,
-                streams_broker_dns_timeout,
-                streams_poll_interval,
-                streams_commit_interval,
-                streams_rebalance_timeout,
-                streams_leave_heartbeat_timeout,
-                streams_join_retry_backoff,
-                streams_interactive_query_queue_capacity,
-                streams_state_store_cache_max_bytes,
-                client_dispatch_queue_capacity,
-                client_frame_max,
-                streams_fetch_min,
+                &metrics,
+                StreamRuntime {
+                    schema_fetch_retry_policy,
+                    broker_dns_timeout: streams_broker_dns_timeout,
+                    poll_interval: streams_poll_interval,
+                    commit_interval: streams_commit_interval,
+                    rebalance_timeout: streams_rebalance_timeout,
+                    leave_heartbeat_timeout: streams_leave_heartbeat_timeout,
+                    join_retry_backoff: streams_join_retry_backoff,
+                    query_queue_capacity: streams_interactive_query_queue_capacity,
+                    state_store_cache_max_bytes: streams_state_store_cache_max_bytes,
+                    dispatch_queue_capacity: client_dispatch_queue_capacity,
+                    frame_max: client_frame_max,
+                    fetch_min: streams_fetch_min,
+                },
             )
             .await?;
         }
         Role::Consume => {
-            Box::pin(run_consume(
+            run_consume(
                 &cli,
                 &metrics,
-                schema_fetch_retry_policy,
-                consumer_leave_group_timeout,
-                consumer_subscription_metadata_refresh_interval,
-                consumer_retry_policy,
-                consumer_fetch_min,
-                consumer_fetch_max,
-                consumer_fetch_partition_max,
-                consumer_session_timeout,
-                consumer_rebalance_timeout,
-                consumer_heartbeat_interval,
-                consumer_request_timeout,
-                consumer_auto_offset_reset,
-                consumer_isolation_level,
-                consumer_assignor,
-                client_dispatch_queue_capacity,
-                client_frame_max,
-            ))
+                ConsumerRuntime {
+                    schema_fetch_retry_policy,
+                    leave_group_timeout: consumer_leave_group_timeout,
+                    metadata_refresh_interval: consumer_subscription_metadata_refresh_interval,
+                    retry_policy: consumer_retry_policy,
+                    fetch_min: consumer_fetch_min,
+                    fetch_max: consumer_fetch_max,
+                    fetch_partition_max: consumer_fetch_partition_max,
+                    session_timeout: consumer_session_timeout,
+                    rebalance_timeout: consumer_rebalance_timeout,
+                    heartbeat_interval: consumer_heartbeat_interval,
+                    request_timeout: consumer_request_timeout,
+                    auto_offset_reset: consumer_auto_offset_reset,
+                    isolation_level: consumer_isolation_level,
+                    assignor: consumer_assignor,
+                    dispatch_queue_capacity: client_dispatch_queue_capacity,
+                    frame_max: client_frame_max,
+                },
+            )
             .await?;
         }
     }
@@ -962,7 +1030,7 @@ async fn run_produce(
 
     if cli.orders_per_sec == Frequency::ZERO {
         tracing::warn!("KRABKA_DEMO_ORDERS_PER_SEC=0 — producer paused");
-        futures_idle().await;
+        shutdown_signal().await;
         return Ok(());
     }
     // The reciprocal of an order rate is the inter-order period.
@@ -970,7 +1038,10 @@ async fn run_produce(
     let mut tick = tokio::time::interval(period.to_std());
     let mut i: u64 = 0;
     loop {
-        tick.tick().await;
+        tokio::select! {
+            () = shutdown_signal() => break,
+            _ = tick.tick() => {}
+        }
         let mut order = order_at(i);
         order.ts_ms = i64::try_from(i).unwrap_or(i64::MAX); // monotonic demo clock
         let value = serde.serialize(&cli.input_topic, &order);
@@ -993,6 +1064,7 @@ async fn run_produce(
             demo.order.customer_tier = %order.customer_tier,
             demo.order.amount = order.amount,
             demo.order.quantity = order.quantity,
+            otel.status_code = tracing::field::Empty,
         );
 
         let producer = Arc::clone(&producer);
@@ -1006,33 +1078,44 @@ async fn run_produce(
             // the record headers so the consumer can continue this trace, plus a
             // couple of business headers to show custom Kafka headers round-trip
             // through the broker verbatim.
-            let mut headers: Vec<Header> = krabka_telemetry::propagation::current_trace_headers()
-                .into_iter()
-                .map(|(k, v)| Header {
-                    key: k,
-                    value: Some(Bytes::from(v.into_bytes())),
-                })
-                .collect();
-            headers.push(Header {
-                key: "x-demo-region".into(),
-                value: Some(Bytes::from(order.region.clone().into_bytes())),
-            });
-            headers.push(Header {
-                key: "x-demo-tier".into(),
-                value: Some(Bytes::from(order.customer_tier.clone().into_bytes())),
-            });
+            let headers = order_headers(
+                krabka_telemetry::propagation::current_trace_headers(),
+                &order,
+            );
 
             let start = Instant::now();
-            producer
-                .send(ProducerRecord {
-                    topic,
-                    key: Some(Bytes::from(order.category.clone().into_bytes())),
-                    value: Some(value),
-                    headers,
-                    ..Default::default()
-                })
-                .await
-                .await??;
+            let record = ProducerRecord {
+                topic,
+                key: Some(Bytes::from(order.category.clone().into_bytes())),
+                value: Some(value),
+                headers,
+                ..Default::default()
+            };
+            let mut sent = false;
+            for attempt in 1..=3 {
+                let delivery = producer.send(record.clone()).await;
+                let result = delivery.await.map_err(|error| error.to_string());
+                match result {
+                    Ok(Ok(_metadata)) => {
+                        sent = true;
+                        break;
+                    }
+                    Ok(Err(error)) => {
+                        metrics.record_error(PipelineErrorKind::ProducerSend);
+                        tracing::Span::current().record("otel.status_code", "ERROR");
+                        tracing::warn!(attempt, error = %error, "producer send failed; retrying");
+                    }
+                    Err(error) => {
+                        metrics.record_error(PipelineErrorKind::ProducerSend);
+                        tracing::Span::current().record("otel.status_code", "ERROR");
+                        tracing::warn!(attempt, error = %error, "producer delivery failed; retrying");
+                    }
+                }
+            }
+            if !sent {
+                tracing::error!("producer send failed after three attempts");
+                return Ok::<(), BoxError>(());
+            }
             metrics.record_produced(
                 &order.category,
                 &order.region,
@@ -1050,55 +1133,57 @@ async fn run_produce(
             tracing::info!(produced = i, "orders produced");
         }
     }
+    Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn run_stream(
     cli: &Cli,
-    schema_fetch_retry_policy: SchemaFetchRetryPolicy,
-    broker_dns_timeout: ClientDnsTimeout,
-    streams_poll_interval: StreamsPollInterval,
-    streams_commit_interval: StreamsCommitInterval,
-    streams_rebalance_timeout: StreamsRebalanceTimeout,
-    streams_leave_heartbeat_timeout: StreamsLeaveHeartbeatTimeout,
-    streams_join_retry_backoff: StreamsJoinRetryBackoff,
-    streams_interactive_query_queue_capacity: StreamsInteractiveQueryQueueCapacity,
-    streams_state_store_cache_max_bytes: StreamsStateStoreCacheMaxBytes,
-    client_dispatch_queue_capacity: ConnectionDispatchQueueCapacity,
-    client_frame_max: ClientFrameMax,
-    streams_fetch_min: FetchMinBytes,
+    metrics: &DemoMetrics,
+    runtime: StreamRuntime,
 ) -> Result<(), BoxError> {
     let app = krabka_client_streams::StreamsApp::builder()
         .bootstrap(cli.bootstrap.clone())
         .application_id(cli.streams_application_id.clone())
         .schema_registry(cli.registry.clone())
         .cache_config(CacheConfig {
-            fetch_retry_policy: schema_fetch_retry_policy,
+            fetch_retry_policy: runtime.schema_fetch_retry_policy,
             ..CacheConfig::default()
         })
-        .broker_dns_timeout(broker_dns_timeout)
-        .client_dispatch_queue_capacity(client_dispatch_queue_capacity)
-        .client_frame_max(client_frame_max)
-        .fetch_min(streams_fetch_min)
-        .poll_interval(streams_poll_interval)
-        .commit_interval(streams_commit_interval)
-        .rebalance_timeout(streams_rebalance_timeout)
-        .leave_heartbeat_timeout(streams_leave_heartbeat_timeout)
-        .join_retry_backoff(streams_join_retry_backoff)
-        .interactive_query_queue_capacity(streams_interactive_query_queue_capacity)
-        .cache_max_bytes(streams_state_store_cache_max_bytes.size())
+        .broker_dns_timeout(runtime.broker_dns_timeout)
+        .client_dispatch_queue_capacity(runtime.dispatch_queue_capacity)
+        .client_frame_max(runtime.frame_max)
+        .fetch_min(runtime.fetch_min)
+        .poll_interval(runtime.poll_interval)
+        .commit_interval(runtime.commit_interval)
+        .rebalance_timeout(runtime.rebalance_timeout)
+        .leave_heartbeat_timeout(runtime.leave_heartbeat_timeout)
+        .join_retry_backoff(runtime.join_retry_backoff)
+        .interactive_query_queue_capacity(runtime.query_queue_capacity)
+        .cache_max_bytes(runtime.state_store_cache_max_bytes.size())
         .build();
     let topology = app.streams_builder();
+    let stream_metrics = metrics.clone();
     topology
         .stream::<String, Order>([cli.input_topic.as_str()])
         .group_by_key()
         .count("orders-by-category-store")
         .to_stream()
+        .peek(move |category, count| {
+            let span = tracing::info_span!(
+                "stream_category_count",
+                otel.kind = "consumer",
+                messaging.system = "kafka",
+                demo.order.category = %category,
+                demo.order.count = *count,
+            );
+            let _guard = span.enter();
+            stream_metrics.record_stream(category, *count);
+            tracing::info!("streams state-store count updated");
+        })
         .to(cli.output_topic.clone());
     tracing::info!("orders-analytics streams app starting");
     let streams = app.run(topology).await?;
-    // Run until Ctrl-C.
-    tokio::signal::ctrl_c().await.ok();
+    shutdown_signal().await;
     streams.close().await?;
     Ok(())
 }
@@ -1109,61 +1194,48 @@ async fn run_stream(
 /// trace with the `traceparent` header. It then runs a multi-stage processing
 /// pipeline: validate, enrich, `fraud_check`, and fulfill. Each stage is a
 /// child span with a per-stage latency metric.
-#[allow(clippy::too_many_arguments)]
 async fn run_consume(
     cli: &Cli,
     metrics: &DemoMetrics,
-    schema_fetch_retry_policy: SchemaFetchRetryPolicy,
-    consumer_leave_group_timeout: ConsumerLeaveGroupTimeout,
-    consumer_subscription_metadata_refresh_interval: ConsumerSubscriptionMetadataRefreshInterval,
-    consumer_retry_policy: ConsumerRetryPolicy,
-    consumer_fetch_min: ByteSize,
-    consumer_fetch_max: ByteSize,
-    consumer_fetch_partition_max: ByteSize,
-    consumer_session_timeout: Time,
-    consumer_rebalance_timeout: Time,
-    consumer_heartbeat_interval: Time,
-    consumer_request_timeout: Time,
-    consumer_auto_offset_reset: AutoOffsetReset,
-    consumer_isolation_level: IsolationLevel,
-    consumer_assignor: Assignor,
-    client_dispatch_queue_capacity: ConnectionDispatchQueueCapacity,
-    client_frame_max: ClientFrameMax,
+    runtime: ConsumerRuntime,
 ) -> Result<(), BoxError> {
-    let serde = order_serde(cli, &cli.input_topic, schema_fetch_retry_policy).await?;
+    let serde = order_serde(cli, &cli.input_topic, runtime.schema_fetch_retry_policy).await?;
 
     let mut consumer = Consumer::builder()
         .bootstrap(cli.bootstrap.clone())
         .group_id(cli.consumer_group_id.clone())
         .subscribe([cli.input_topic.clone()])
-        .dispatch_queue_capacity(client_dispatch_queue_capacity.get())
-        .frame_max(client_frame_max.size())
-        .leave_group_timeout(consumer_leave_group_timeout.duration().as_time())
+        .dispatch_queue_capacity(runtime.dispatch_queue_capacity.get())
+        .frame_max(runtime.frame_max.size())
+        .leave_group_timeout(runtime.leave_group_timeout.duration().as_time())
         .subscription_metadata_refresh_interval(
-            consumer_subscription_metadata_refresh_interval
-                .duration()
-                .as_time(),
+            runtime.metadata_refresh_interval.duration().as_time(),
         )
-        .retry_policy(consumer_retry_policy)
-        .fetch_min(consumer_fetch_min)
-        .fetch_max(consumer_fetch_max)
-        .fetch_partition_max(consumer_fetch_partition_max)
-        .session_timeout(consumer_session_timeout)
-        .rebalance_timeout(consumer_rebalance_timeout)
-        .heartbeat_interval(consumer_heartbeat_interval)
-        .request_timeout(consumer_request_timeout)
-        .auto_offset_reset(consumer_auto_offset_reset)
-        .isolation_level(consumer_isolation_level)
-        .assignor(consumer_assignor)
+        .retry_policy(runtime.retry_policy)
+        .fetch_min(runtime.fetch_min)
+        .fetch_max(runtime.fetch_max)
+        .fetch_partition_max(runtime.fetch_partition_max)
+        .session_timeout(runtime.session_timeout)
+        .rebalance_timeout(runtime.rebalance_timeout)
+        .heartbeat_interval(runtime.heartbeat_interval)
+        .request_timeout(runtime.request_timeout)
+        .auto_offset_reset(runtime.auto_offset_reset)
+        .isolation_level(runtime.isolation_level)
+        .assignor(runtime.assignor)
         .build()
         .await?;
     tracing::info!(topic = %cli.input_topic, "order processor starting");
     loop {
-        let records = consumer.poll(cli.consumer_poll_timeout).await?;
+        let records = tokio::select! {
+            () = shutdown_signal() => break,
+            records = consumer.poll(cli.consumer_poll_timeout) => records?,
+        };
         for record in records {
             process_order_record(cli, &serde, metrics, &record).await;
         }
     }
+    consumer.close().await?;
+    Ok(())
 }
 
 /// Build the consumer-side `process_order` span, make it a child of the
@@ -1187,16 +1259,18 @@ async fn process_order_record(
         demo.order.id = tracing::field::Empty,
         demo.order.category = tracing::field::Empty,
         demo.order.region = tracing::field::Empty,
+        demo.order.warehouse = tracing::field::Empty,
+        demo.order.payment_method = tracing::field::Empty,
+        demo.order.customer_tier = tracing::field::Empty,
+        demo.order.amount = tracing::field::Empty,
+        demo.order.quantity = tracing::field::Empty,
         demo.order.outcome = tracing::field::Empty,
+        demo.header.region = header_value(&record.headers, "x-demo-region"),
+        demo.header.tier = header_value(&record.headers, "x-demo-tier"),
+        otel.status_code = tracing::field::Empty,
     );
     // Continue the producer's trace when the record carries one.
-    krabka_telemetry::propagation::set_remote_parent(
-        &span,
-        record
-            .headers
-            .iter()
-            .map(|h| (h.key.as_str(), h.value.as_deref().unwrap_or(&[][..]))),
-    );
+    observability_demo_app::pipeline::continue_trace(&span, &record.headers);
     process_order_inner(cli, serde, metrics, record)
         .instrument(span)
         .await;
@@ -1209,13 +1283,19 @@ async fn process_order_inner(
     record: &ConsumerRecord,
 ) {
     let start = Instant::now();
-    let Some(value) = record.value.as_deref() else {
-        tracing::warn!("order record has no value");
-        return;
-    };
-    let order = match serde.deserialize(&cli.input_topic, value) {
+    let order = match decode_order(record.value.as_deref(), |value| {
+        serde.deserialize(&cli.input_topic, value)
+    }) {
         Ok(order) => order,
-        Err(e) => {
+        Err(PipelineInputError::MissingValue) => {
+            metrics.record_error(PipelineErrorKind::MissingValue);
+            tracing::Span::current().record("otel.status_code", "ERROR");
+            tracing::warn!("order record has no value");
+            return;
+        }
+        Err(PipelineInputError::Deserialize(e)) => {
+            metrics.record_error(PipelineErrorKind::Deserialize);
+            tracing::Span::current().record("otel.status_code", "ERROR");
             tracing::error!(error = %e, "failed to deserialize order");
             return;
         }
@@ -1225,13 +1305,33 @@ async fn process_order_inner(
     span.record("demo.order.id", order.order_id.as_str());
     span.record("demo.order.category", order.category.as_str());
     span.record("demo.order.region", order.region.as_str());
+    span.record("demo.order.warehouse", order.warehouse.as_str());
+    span.record("demo.order.payment_method", order.payment_method.as_str());
+    span.record("demo.order.customer_tier", order.customer_tier.as_str());
+    span.record("demo.order.amount", order.amount);
+    span.record("demo.order.quantity", order.quantity);
 
     // Each stage is a child span with simulated work + a per-stage latency
     // metric, so the trace waterfall shows the processing pipeline.
-    stage(metrics, "validate", cli.validate_work.to_std()).await;
-    stage(metrics, "enrich", cli.enrich_work.to_std()).await;
-    stage(metrics, "fraud_check", cli.fraud_check_work.to_std()).await;
-    stage(metrics, "fulfill", cli.fulfill_work.to_std()).await;
+    let work = StageWork {
+        validate: cli.validate_work.to_std(),
+        enrich: cli.enrich_work.to_std(),
+        fraud_check: cli.fraud_check_work.to_std(),
+        fulfill: cli.fulfill_work.to_std(),
+    };
+    let order_index = order
+        .order_id
+        .strip_prefix("o-")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or_default();
+    for name in ["validate", "enrich", "fraud_check", "fulfill"] {
+        stage(
+            metrics,
+            name,
+            stage_delay(name, work, order_index, cli.slow_order_fraction),
+        )
+        .await;
+    }
 
     let outcome = classify_outcome(&order);
     span.record("demo.order.outcome", outcome);
@@ -1279,9 +1379,29 @@ async fn stage(metrics: &DemoMetrics, name: &'static str, work: Duration) {
     .await;
 }
 
-async fn futures_idle() {
-    // Park forever (used when production is paused).
-    std::future::pending::<()>().await;
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("install SIGTERM handler");
+        wait_for_shutdown(async {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {},
+                _ = terminate.recv() => {},
+            }
+        })
+        .await;
+    }
+    #[cfg(not(unix))]
+    wait_for_shutdown(async {
+        tokio::signal::ctrl_c().await.ok();
+    })
+    .await;
+}
+
+async fn wait_for_shutdown(signal: impl Future<Output = ()>) {
+    signal.await;
 }
 
 #[cfg(test)]
@@ -1289,6 +1409,17 @@ mod tests {
     use clap::CommandFactory;
 
     use super::*;
+
+    #[tokio::test]
+    async fn shutdown_helper_accepts_an_injected_signal() {
+        let observed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let signal_observed = std::sync::Arc::clone(&observed);
+        wait_for_shutdown(async move {
+            signal_observed.store(true, std::sync::atomic::Ordering::SeqCst);
+        })
+        .await;
+        assert2::assert!(observed.load(std::sync::atomic::Ordering::SeqCst));
+    }
 
     #[test]
     fn workload_policy_preserves_defaults_and_accepts_units() {
@@ -1300,6 +1431,7 @@ mod tests {
         assert2::assert!(defaults.enrich_work == krabka_units::micros(400));
         assert2::assert!(defaults.fraud_check_work == krabka_units::micros(200));
         assert2::assert!(defaults.fulfill_work == krabka_units::micros(300));
+        assert2::assert!((defaults.slow_order_fraction - 0.02).abs() < f64::EPSILON);
 
         let custom = Cli::try_parse_from([
             "observability-demo-app",
@@ -1386,7 +1518,7 @@ mod tests {
     fn consumer_timing_uses_defaults_and_independent_overrides() {
         let defaults = Cli::try_parse_from(["observability-demo-app", "--role", "consume"])
             .expect("default CLI");
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_consumer_timing(&defaults).expect("default timing"),
             (secs(45), minutes(1), secs(3), secs(30))
         );
@@ -1405,7 +1537,7 @@ mod tests {
             "31s",
         ])
         .expect("custom CLI");
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_consumer_timing(&custom).expect("custom timing"),
             (secs(46), secs(61), secs(4), secs(31))
         );
@@ -1415,7 +1547,7 @@ mod tests {
     fn consumer_fetch_policy_uses_defaults_and_validates_overrides() {
         let defaults = Cli::try_parse_from(["observability-demo-app", "--role", "consume"])
             .expect("default CLI");
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_consumer_fetch_policy(&defaults).expect("default fetch policy"),
             (bytes(1), mebibytes(50), mebibytes(1))
         );
@@ -1432,7 +1564,7 @@ mod tests {
             "2MiB",
         ])
         .expect("custom CLI");
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_consumer_fetch_policy(&custom).expect("custom fetch policy"),
             (bytes(3), mebibytes(32), mebibytes(2))
         );
@@ -1442,7 +1574,7 @@ mod tests {
     fn consumer_retry_policy_uses_defaults_and_validates_overrides() {
         let defaults = Cli::try_parse_from(["observability-demo-app", "--role", "consume"])
             .expect("default CLI");
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_consumer_retry_policy(&defaults).expect("default retry policy"),
             ConsumerRetryPolicy::default()
         );
@@ -1468,13 +1600,13 @@ mod tests {
         ])
         .expect("custom CLI");
         let policy = effective_consumer_retry_policy(&custom).expect("custom retry policy");
-        assert_eq!(policy.startup_attempt_timeout(), secs(2));
-        assert_eq!(policy.startup_deadline(), secs(3));
-        assert_eq!(policy.startup_initial_backoff(), millis(10));
-        assert_eq!(policy.startup_max_backoff(), millis(20));
-        assert_eq!(policy.coordinator_retry_timeout(), secs(4));
-        assert_eq!(policy.coordinator_initial_backoff(), millis(30));
-        assert_eq!(policy.coordinator_max_backoff(), millis(40));
+        observability_demo_app::check_eq!(policy.startup_attempt_timeout(), secs(2));
+        observability_demo_app::check_eq!(policy.startup_deadline(), secs(3));
+        observability_demo_app::check_eq!(policy.startup_initial_backoff(), millis(10));
+        observability_demo_app::check_eq!(policy.startup_max_backoff(), millis(20));
+        observability_demo_app::check_eq!(policy.coordinator_retry_timeout(), secs(4));
+        observability_demo_app::check_eq!(policy.coordinator_initial_backoff(), millis(30));
+        observability_demo_app::check_eq!(policy.coordinator_max_backoff(), millis(40));
     }
 
     #[test]
@@ -1482,8 +1614,8 @@ mod tests {
         let defaults = Cli::try_parse_from(["observability-demo-app", "--role", "produce"])
             .expect("default CLI");
         let defaults = schema_fetch_retry_policy(&defaults).expect("default policy");
-        assert_eq!(defaults.initial_backoff(), millis(10));
-        assert_eq!(defaults.max_backoff(), secs(1));
+        observability_demo_app::check_eq!(defaults.initial_backoff(), millis(10));
+        observability_demo_app::check_eq!(defaults.max_backoff(), secs(1));
 
         let explicit = Cli::try_parse_from([
             "observability-demo-app",
@@ -1496,8 +1628,8 @@ mod tests {
         ])
         .expect("explicit CLI");
         let explicit = schema_fetch_retry_policy(&explicit).expect("explicit policy");
-        assert_eq!(explicit.initial_backoff(), millis(37));
-        assert_eq!(explicit.max_backoff(), millis(91));
+        observability_demo_app::check_eq!(explicit.initial_backoff(), millis(37));
+        observability_demo_app::check_eq!(explicit.max_backoff(), millis(91));
     }
 
     #[test]
@@ -1514,14 +1646,14 @@ mod tests {
         .expect("equal CLI bounds");
 
         let policy = schema_fetch_retry_policy(&cli).expect("equal retry bounds are valid");
-        assert_eq!(policy.initial_backoff(), policy.max_backoff());
+        observability_demo_app::check_eq!(policy.initial_backoff(), policy.max_backoff());
     }
 
     #[test]
     fn consumer_subscription_metadata_refresh_uses_default_and_override() {
         let defaults = Cli::try_parse_from(["observability-demo-app", "--role", "consume"])
             .expect("default CLI");
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_consumer_subscription_metadata_refresh_interval(&defaults)
                 .expect("typed default")
                 .milliseconds(),
@@ -1536,7 +1668,7 @@ mod tests {
             "37ms",
         ])
         .expect("override CLI");
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_consumer_subscription_metadata_refresh_interval(&overridden)
                 .expect("typed override")
                 .milliseconds(),
@@ -1565,6 +1697,7 @@ mod tests {
             enrich_work: krabka_units::micros(400),
             fraud_check_work: krabka_units::micros(200),
             fulfill_work: krabka_units::micros(300),
+            slow_order_fraction: 0.02,
             consumer_leave_group_timeout: None,
             consumer_subscription_metadata_refresh_interval: None,
             consumer_startup_attempt_timeout: None,
@@ -1594,7 +1727,7 @@ mod tests {
             streams_state_store_cache_max: None,
             streams_fetch_min: None,
         };
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_streams_broker_dns_timeout(&defaults).expect("typed default"),
             krabka_client_streams::ClientDnsTimeout::default()
         );
@@ -1604,7 +1737,7 @@ mod tests {
             streams_broker_dns_timeout: Some(millis(37)),
             ..defaults
         };
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_streams_broker_dns_timeout(&overridden)
                 .expect("typed override")
                 .milliseconds(),
@@ -1632,7 +1765,7 @@ mod tests {
         ])
         .expect("parse before role validation");
         let error = effective_streams_broker_dns_timeout(&produce).expect_err("Stream-only option");
-        assert_eq!(
+        observability_demo_app::check_eq!(
             error.to_string(),
             "--streams-broker-dns-timeout (37ms) is only valid with --role stream"
         );
@@ -1659,6 +1792,7 @@ mod tests {
             enrich_work: krabka_units::micros(400),
             fraud_check_work: krabka_units::micros(200),
             fulfill_work: krabka_units::micros(300),
+            slow_order_fraction: 0.02,
             consumer_leave_group_timeout: None,
             consumer_subscription_metadata_refresh_interval: None,
             consumer_startup_attempt_timeout: None,
@@ -1689,8 +1823,11 @@ mod tests {
             streams_fetch_min: None,
         };
         let (poll, commit) = effective_streams_runtime_cadence(&defaults).expect("typed defaults");
-        assert_eq!(poll, krabka_client_streams::StreamsPollInterval::default());
-        assert_eq!(
+        observability_demo_app::check_eq!(
+            poll,
+            krabka_client_streams::StreamsPollInterval::default()
+        );
+        observability_demo_app::check_eq!(
             commit,
             krabka_client_streams::StreamsCommitInterval::default()
         );
@@ -1703,8 +1840,8 @@ mod tests {
         };
         let (poll, commit) =
             effective_streams_runtime_cadence(&overridden).expect("typed overrides");
-        assert_eq!(poll.milliseconds(), 37);
-        assert_eq!(commit.milliseconds(), 41);
+        observability_demo_app::check_eq!(poll.milliseconds(), 37);
+        observability_demo_app::check_eq!(commit.milliseconds(), 41);
     }
 
     #[test]
@@ -1735,7 +1872,7 @@ mod tests {
         ])
         .expect("parse before role validation");
         let error = effective_streams_runtime_cadence(&produce).expect_err("Stream-only option");
-        assert_eq!(
+        observability_demo_app::check_eq!(
             error.to_string(),
             "--streams-poll-interval (37ms) is only valid with --role stream"
         );
@@ -1762,6 +1899,7 @@ mod tests {
             enrich_work: krabka_units::micros(400),
             fraud_check_work: krabka_units::micros(200),
             fulfill_work: krabka_units::micros(300),
+            slow_order_fraction: 0.02,
             consumer_leave_group_timeout: None,
             consumer_subscription_metadata_refresh_interval: None,
             consumer_startup_attempt_timeout: None,
@@ -1791,7 +1929,7 @@ mod tests {
             streams_state_store_cache_max: None,
             streams_fetch_min: None,
         };
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_streams_rebalance_timeout(&defaults).expect("typed default"),
             krabka_client_streams::StreamsRebalanceTimeout::default()
         );
@@ -1801,7 +1939,7 @@ mod tests {
             streams_rebalance_timeout: Some(secs(45)),
             ..defaults
         };
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_streams_rebalance_timeout(&overridden)
                 .expect("typed override")
                 .milliseconds(),
@@ -1830,7 +1968,7 @@ mod tests {
         .expect("parse before typed validation");
         let error =
             effective_streams_rebalance_timeout(&overflow).expect_err("i32 overflow must fail");
-        assert!(error.to_string().contains("streams rebalance timeout"));
+        observability_demo_app::check!(error.to_string().contains("streams rebalance timeout"));
 
         let produce = Cli::try_parse_from([
             "observability-demo-app",
@@ -1841,7 +1979,7 @@ mod tests {
         ])
         .expect("parse before role validation");
         let error = effective_streams_rebalance_timeout(&produce).expect_err("Stream-only option");
-        assert_eq!(
+        observability_demo_app::check_eq!(
             error.to_string(),
             "--streams-rebalance-timeout (45s) is only valid with --role stream"
         );
@@ -1868,6 +2006,7 @@ mod tests {
             enrich_work: krabka_units::micros(400),
             fraud_check_work: krabka_units::micros(200),
             fulfill_work: krabka_units::micros(300),
+            slow_order_fraction: 0.02,
             consumer_leave_group_timeout: None,
             consumer_subscription_metadata_refresh_interval: None,
             consumer_startup_attempt_timeout: None,
@@ -1897,7 +2036,7 @@ mod tests {
             streams_state_store_cache_max: None,
             streams_fetch_min: None,
         };
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_streams_join_retry_backoff(&defaults).expect("typed default"),
             StreamsJoinRetryBackoff::default()
         );
@@ -1907,7 +2046,7 @@ mod tests {
             streams_join_retry_backoff: Some(millis(37)),
             ..defaults
         };
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_streams_join_retry_backoff(&overridden)
                 .expect("typed override")
                 .milliseconds(),
@@ -1936,6 +2075,7 @@ mod tests {
             enrich_work: krabka_units::micros(400),
             fraud_check_work: krabka_units::micros(200),
             fulfill_work: krabka_units::micros(300),
+            slow_order_fraction: 0.02,
             consumer_leave_group_timeout: None,
             consumer_subscription_metadata_refresh_interval: None,
             consumer_startup_attempt_timeout: None,
@@ -1965,7 +2105,7 @@ mod tests {
             streams_state_store_cache_max: None,
             streams_fetch_min: None,
         };
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_streams_interactive_query_queue_capacity(&defaults).expect("typed default"),
             StreamsInteractiveQueryQueueCapacity::default()
         );
@@ -1975,7 +2115,7 @@ mod tests {
             streams_interactive_query_queue_capacity: NonZeroUsize::new(37),
             ..defaults
         };
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_streams_interactive_query_queue_capacity(&overridden)
                 .expect("typed override")
                 .capacity(),
@@ -1988,9 +2128,9 @@ mod tests {
         let defaults = Cli::try_parse_from(["observability-demo-app", "--role", "stream"])
             .expect("default CLI");
         let (dispatch, frame) = client_resource_policy(&defaults);
-        assert_eq!(dispatch.get(), 64);
-        assert_eq!(frame.size(), mebibytes(100));
-        assert_eq!(
+        observability_demo_app::check_eq!(dispatch.get(), 64);
+        observability_demo_app::check_eq!(frame.size(), mebibytes(100));
+        observability_demo_app::check_eq!(
             effective_streams_fetch_min(&defaults)
                 .expect("default fetch minimum")
                 .bytes(),
@@ -2010,9 +2150,9 @@ mod tests {
         ])
         .expect("custom CLI");
         let (dispatch, frame) = client_resource_policy(&custom);
-        assert_eq!(dispatch.get(), 7);
-        assert_eq!(frame.size(), kibibytes(32));
-        assert_eq!(
+        observability_demo_app::check_eq!(dispatch.get(), 7);
+        observability_demo_app::check_eq!(frame.size(), kibibytes(32));
+        observability_demo_app::check_eq!(
             effective_streams_fetch_min(&custom)
                 .expect("custom fetch minimum")
                 .bytes(),
@@ -2037,7 +2177,7 @@ mod tests {
             "3B",
         ])
         .expect("parse before role validation");
-        assert_eq!(
+        observability_demo_app::check_eq!(
             effective_streams_fetch_min(&produce)
                 .expect_err("Streams-only option")
                 .to_string(),
@@ -2052,9 +2192,9 @@ mod tests {
             let environment = Cli::try_parse_from(["observability-demo-app", "--role", "stream"])
                 .expect("environment policy");
             let (dispatch, frame) = client_resource_policy(&environment);
-            assert_eq!(dispatch.get(), 7);
-            assert_eq!(frame.size(), kibibytes(32));
-            assert_eq!(
+            observability_demo_app::check_eq!(dispatch.get(), 7);
+            observability_demo_app::check_eq!(frame.size(), kibibytes(32));
+            observability_demo_app::check_eq!(
                 effective_streams_fetch_min(&environment)
                     .expect("environment fetch minimum")
                     .bytes(),
@@ -2074,9 +2214,9 @@ mod tests {
             ])
             .expect("CLI over environment");
             let (dispatch, frame) = client_resource_policy(&cli);
-            assert_eq!(dispatch.get(), 9);
-            assert_eq!(frame.size(), kibibytes(64));
-            assert_eq!(
+            observability_demo_app::check_eq!(dispatch.get(), 9);
+            observability_demo_app::check_eq!(frame.size(), kibibytes(64));
+            observability_demo_app::check_eq!(
                 effective_streams_fetch_min(&cli)
                     .expect("environment policy")
                     .bytes(),
@@ -2098,6 +2238,6 @@ mod tests {
                 .env("KRABKA_DEMO_STREAMS_FETCH_MIN", "3B")
                 .status()
                 .expect("run isolated environment parser test");
-        assert!(status.success());
+        observability_demo_app::check!(status.success());
     }
 }

@@ -19,6 +19,19 @@ datasources:
     jsonData:
       httpMethod: GET
       httpHeaderName1: X-Scope-OrgID
+      serviceMap:
+        datasourceUid: krabka-prom
+      tracesToLogsV2:
+        datasourceUid: krabka-loki
+        spanStartTimeShift: -1m
+        spanEndTimeShift: 1m
+        filterByTraceID: true
+        filterBySpanID: false
+        tags: [service.name]
+      tracesToProfiles:
+        datasourceUid: krabka-pyroscope
+        profileTypeId: process_cpu:cpu:nanoseconds:cpu:nanoseconds
+        tags: [service.name]
     secureJsonData:
       httpHeaderValue1: demo
     editable: false
@@ -31,6 +44,11 @@ datasources:
       httpHeaderName1: X-Scope-OrgID
       manageAlerts: false
       maxLines: 100
+      derivedFields:
+        - name: TraceID
+          matcherRegex: 'trace[_-]?id[=:" ]+([0-9a-f]{32})'
+          datasourceUid: krabka-tempo
+          url: '$${__value.raw}'
     secureJsonData:
       httpHeaderValue1: demo
     editable: false

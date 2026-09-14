@@ -22,6 +22,7 @@ x-otlp-env: &otlp-env
   KRABKA_OTLP_HEARTBEAT_INTERVAL: "${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}"
   KRABKA_OTLP_FILTER: "${KRABKA_OTLP_FILTER:-info}"
   KRABKA_ADMIN_LISTEN_ADDR: 0.0.0.0:9404
+  KRABKA_REVISION: "${KRABKA_REVISION:-unknown}"
   # Enable jemalloc heap profiling support continuously so heap profiles include
   # long-lived allocations, but sample coarsely (~every 1 MiB) so small demo
   # services still produce useful heap profiles without tracing every
@@ -38,10 +39,22 @@ x-otlp-env: &otlp-env
 x-demo-image: &demo-image
   image: ${KRABKA_DEMO_IMAGE:-ghcr.io/krabka-io/krabka-o11y-demo@sha256:b79f9dbe16d30671073ca8a40df2fb60b1faab898bdb2d8793d173f3e2d1111f}
   restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9404/metrics"]
+    interval: 10s
+    timeout: 3s
+    retries: 30
+    start_period: 10s
 
 x-schema-registry-image: &schema-registry-image
   image: ${KRABKA_SCHEMA_REGISTRY_IMAGE:-ghcr.io/krabka-io/krabka-schema-registry@sha256:ad106d2b623b7a39fc0566ecbff077a662b544314e2de61357a381e6969cbef9}
   restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "/usr/bin/krabka-schema-registry", "--help"]
+    interval: 10s
+    timeout: 3s
+    retries: 30
+    start_period: 10s
 
 x-broker-image: &broker-image
   image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:6b51b36166590f07a4f28bd480296e59ad14162d4bc518a50678fa0f20fae8df}
@@ -50,6 +63,12 @@ x-broker-image: &broker-image
 x-o11y-image: &o11y-image
   image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:3032e3ba2c11a6c014e499edabd7fb6f8939f9d7d40ae659bd4dfbdad1051efa}
   restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "/bin/sh", "-c", "test -r /proc/1/stat"]
+    interval: 10s
+    timeout: 3s
+    retries: 30
+    start_period: 10s
 
 x-gres-image: &gres-image
   image: ${KRABKA_GRES_IMAGE:-ghcr.io/krabka-io/gres@sha256:4117982fa13ab02d86e76ec70f267acfe884fa3c99befe1bdc690b9d5ea0984a}
@@ -126,7 +145,7 @@ services:
   # already have a broker-data volume from before this flag was added, wipe it
   # with `docker compose down -v` and restart.
   broker-permissions:
-    image: mirror.gcr.io/library/busybox:1.38
+    image: mirror.gcr.io/library/busybox:1.38@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
     <<: *setup-res
     restart: "no"
     command: ["chown", "65532:65532", "/data"]
@@ -154,7 +173,7 @@ services:
       RUST_LOG: "${KRABKA_RUST_LOG:-info,pprof::profiler=warn,object_store::client::retry=warn,krabka_broker::network::dispatch=warn}"
       KRABKA_OTLP_FILTER: "${KRABKA_OTLP_FILTER:-info,krabka_broker::network::dispatch=warn}"
       KRABKA_METRICS_LISTEN_ADDR: 0.0.0.0:9404
-    ports: ["9092:9092", "9404:9404"]
+    ports: ["${KRABKA_LISTEN_HOST:-127.0.0.1}:9092:9092", "${KRABKA_LISTEN_HOST:-127.0.0.1}:9404:9404"]
     volumes: ["broker-data:/data"]
     depends_on:
       broker-format:
@@ -166,14 +185,14 @@ services:
       retries: 30
 
   rustfs-permissions:
-    image: mirror.gcr.io/library/busybox:1.38
+    image: mirror.gcr.io/library/busybox:1.38@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
     <<: *setup-res
     restart: "no"
     command: ["sh", "-c", "mkdir -p /data && chown -R 10001:10001 /data"]
     volumes: ["rustfs-data:/data"]
 
   rustfs:
-    image: mirror.gcr.io/rustfs/rustfs:latest
+    image: mirror.gcr.io/rustfs/rustfs:latest@sha256:97171b3d72cd47dc81000f92ea84de25608bfc35a94c965501afaeb5d99f6035
     restart: unless-stopped
     # Resource caps (see x-rustfs-res / .env); the cap bounds object-store cache and query bursts.
     <<: *rustfs-res
@@ -207,11 +226,11 @@ services:
       RUSTFS_OBJECT_FILE_CACHE_RECLAIM_READ_ENABLE: "true"
       RUSTFS_OBJECT_FILE_CACHE_RECLAIM_WRITE_ENABLE: "true"
       RUSTFS_OBJECT_FILE_CACHE_RECLAIM_THRESHOLD: "65536"
-    ports: ["9000:9000", "9001:9001"]
+    ports: ["${KRABKA_LISTEN_HOST:-127.0.0.1}:9000:9000", "${KRABKA_LISTEN_HOST:-127.0.0.1}:9001:9001"]
     volumes: ["rustfs-data:/data"]
     depends_on:
       rustfs-permissions: {condition: service_completed_successfully}
-      alloy: {condition: service_started}
+      alloy: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
       interval: 5s
@@ -219,7 +238,7 @@ services:
       retries: 30
 
   rustfs-setup:
-    image: mirror.gcr.io/amazon/aws-cli:latest
+    image: mirror.gcr.io/amazon/aws-cli:latest@sha256:e8467f2c319f9bc9a1471808a69949a76915e9c95eaf4a09ece9f9e85fd32747
     <<: *setup-res
     restart: "no"
     environment: {<<: *s3-env}
@@ -239,7 +258,7 @@ services:
   # bootstrap above creates and validates its four WAL and two compacted state
   # topics against the pinned broker.
   topic-setup:
-    image: mirror.gcr.io/apache/kafka:4.3.1
+    image: mirror.gcr.io/apache/kafka:4.3.1@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837
     <<: *setup-res
     restart: "no"
     depends_on:
@@ -257,13 +276,13 @@ services:
       OTEL_SERVICE_NAME: schema-registry
     depends_on:
       broker: {condition: service_healthy}
-    ports: ["8081:8081"]
+    ports: ["${KRABKA_LISTEN_HOST:-127.0.0.1}:8081:8081"]
 
   # One-shot: wait until the registry answers HTTP. The registry image holds
   # only its binary, so it has no tool for a container healthcheck. The demo
   # roles fetch their schema at startup and wait for this service.
   schema-registry-ready:
-    image: mirror.gcr.io/library/busybox:1.38
+    image: mirror.gcr.io/library/busybox:1.38@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
     <<: *setup-res
     restart: "no"
     entrypoint:
@@ -272,7 +291,7 @@ services:
       - >
         for attempt in $$(seq 60); do wget -q -O /dev/null http://schema-registry:8081/subjects && exit 0; sleep 2; done; echo "schema-registry is not ready" >&2; exit 1
     depends_on:
-      schema-registry: {condition: service_started}
+      schema-registry: {condition: service_healthy}
 
   # ---- METRICS (Prometheus/Mimir) ----
   metrics-distributor:
@@ -322,7 +341,7 @@ services:
     environment:
       <<: [*s3-env, *otlp-env]
       OTEL_SERVICE_NAME: metrics-querier
-    ports: ["9090:9090"]
+    ports: ["${KRABKA_LISTEN_HOST:-127.0.0.1}:9090:9090"]
     depends_on:
       rustfs-setup: {condition: service_completed_successfully}
       broker: {condition: service_healthy}
@@ -365,7 +384,7 @@ services:
     depends_on:
       broker: {condition: service_healthy}
       observability-topic-setup: {condition: service_completed_successfully}
-      metrics-distributor: {condition: service_started}
+      metrics-distributor: {condition: service_healthy}
       topic-setup: {condition: service_completed_successfully}
 
   traces-querier:
@@ -377,7 +396,7 @@ services:
       KRABKA_TRACES_BLOCK_READ_MAX: "${KRABKA_TRACES_BLOCK_READ_MAX:-1GiB}"
       KRABKA_TRACES_SCAN_CONCAT_MAX: "${KRABKA_TRACES_SCAN_CONCAT_MAX:-1.5GB}"
       OTEL_SERVICE_NAME: traces-querier
-    ports: ["3200:3200"]
+    ports: ["${KRABKA_LISTEN_HOST:-127.0.0.1}:3200:3200"]
     depends_on:
       rustfs-setup: {condition: service_completed_successfully}
 
@@ -421,7 +440,7 @@ services:
     environment:
       <<: [*s3-env, *otlp-env]
       OTEL_SERVICE_NAME: logs-querier
-    ports: ["3100:3100"]
+    ports: ["${KRABKA_LISTEN_HOST:-127.0.0.1}:3100:3100"]
     # The hot-tail WAL consumer (--wal-bootstrap-server) connects to the broker at
     # startup; without waiting for broker health it starts too early, the initial
     # consumer-group join fails, and the tail never recovers -> empty labels/streams
@@ -471,7 +490,7 @@ services:
       KRABKA_PROFILES_INDEX_SNAPSHOT_MAX: "${KRABKA_PROFILES_INDEX_SNAPSHOT_MAX:-256MiB}"
       KRABKA_PROFILES_WAL_POLL_TIMEOUT: "${KRABKA_PROFILES_WAL_POLL_TIMEOUT:-500ms}"
       OTEL_SERVICE_NAME: profiles-querier
-    ports: ["4040:4040"]
+    ports: ["${KRABKA_LISTEN_HOST:-127.0.0.1}:4040:4040"]
     # The hot WAL-tail consumer (--bootstrap) connects to the broker at startup;
     # without waiting for broker health it starts too early, the initial join fails,
     # and the hot store stays empty -> profiles (especially sparse ones like memory)
@@ -483,18 +502,23 @@ services:
 
   # ---- COLLECTOR + GRAFANA ----
   alloy:
-    image: mirror.gcr.io/grafana/alloy:v1.18.1
+    image: mirror.gcr.io/grafana/alloy:v1.18.1@sha256:0f4434c92b3e6cdac38bb129b344e1790c246f7b6e2eaffcc16a5fa363240e33
     <<: *alloy-res
     command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
     volumes:
       - "./alloy/config.alloy:/etc/alloy/config.alloy:ro"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
-    ports: ["12345:12345"]
+    ports: ["${KRABKA_LISTEN_HOST:-127.0.0.1}:12345:12345"]
     depends_on:
       broker: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:12345/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
 
   cadvisor:
-    image: ghcr.io/google/cadvisor:v0.60.5
+    image: ghcr.io/google/cadvisor:v0.60.5@sha256:763aecf1c32c2be8a1a75f9abfc2fc461005c9dbbaa39cb356b354aac1296dbe
     <<: *cadvisor-res
     command:
       - "--docker_only=true"
@@ -506,9 +530,14 @@ services:
       - "/sys:/sys:ro"
       - "/var/lib/docker:/var/lib/docker:ro"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
 
   grafana:
-    image: mirror.gcr.io/grafana/grafana:13.2
+    image: mirror.gcr.io/grafana/grafana:13.2@sha256:f772d434e8fab0049deb2b1b30abd43342bcfca1537614aa8d36080232cf4283
     <<: *grafana-res
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
@@ -516,7 +545,7 @@ services:
       GF_FEATURE_TOGGLES_ENABLE: "flameGraph traceqlEditor"
       GF_PLUGINS_PREINSTALL_SYNC: "grafana-lokiexplore-app@2.1.5,grafana-pyroscope-app@2.0.7,grafana-exploretraces-app@2.0.4,grafana-metricsdrilldown-app@2.1.0"
       GF_PLUGINS_DISABLE_PLUGINS: "elasticsearch"
-    ports: ["3000:3000"]
+    ports: ["${KRABKA_LISTEN_HOST:-127.0.0.1}:3000:3000"]
     volumes:
       - "./grafana/provisioning:/etc/grafana/provisioning:ro"
     depends_on:
@@ -524,6 +553,11 @@ services:
       - traces-querier
       - logs-querier
       - profiles-querier
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
 
   # ---- DEMO APP ----
   demo-produce:
@@ -593,6 +627,7 @@ services:
       KRABKA_DEMO_CONSUMER_AUTO_OFFSET_RESET: "${KRABKA_DEMO_CONSUMER_AUTO_OFFSET_RESET:-latest}"
       KRABKA_DEMO_CONSUMER_ISOLATION_LEVEL: "${KRABKA_DEMO_CONSUMER_ISOLATION_LEVEL:-read-uncommitted}"
       KRABKA_DEMO_CONSUMER_ASSIGNOR: "${KRABKA_DEMO_CONSUMER_ASSIGNOR:-range}"
+      KRABKA_DEMO_SLOW_ORDER_FRACTION: "${KRABKA_DEMO_SLOW_ORDER_FRACTION:-0.02}"
     depends_on:
       topic-setup: {condition: service_completed_successfully}
       # The traced consumer now deserialises Order via the registry (to enrich
@@ -654,7 +689,7 @@ services:
       # export personal data or secrets. Spans still carry db.query.summary
       # ("SELECT demo_orders") plus operation/collection/namespace either way.
       KRABKA_OTLP_SQL_TEXT: "${KRABKA_GRES_OTLP_SQL_TEXT:-false}"
-    ports: ["5433:5433"]
+    ports: ["${KRABKA_LISTEN_HOST:-127.0.0.1}:5433:5433"]
     volumes: ["gres-cache:/data"]
     depends_on:
       broker: {condition: service_healthy}
@@ -672,7 +707,7 @@ services:
   # anyone having to open psql. Set KRABKA_GRES_WORKLOAD_INTERVAL=0 to make it
   # spin as fast as gres will answer; raise it to quieten the demo.
   gres-workload:
-    image: mirror.gcr.io/library/postgres:18-alpine
+    image: mirror.gcr.io/library/postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
     <<: *demo-res
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/workload.sh"]

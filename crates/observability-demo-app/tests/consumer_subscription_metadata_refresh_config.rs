@@ -16,8 +16,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         )
         .output()
         .expect("run demo");
-    assert!(!environment.status.success());
-    assert!(String::from_utf8_lossy(&environment.stderr).contains(
+    observability_demo_app::check!(!environment.status.success());
+    observability_demo_app::check!(String::from_utf8_lossy(&environment.stderr).contains(
         "--consumer-subscription-metadata-refresh-interval (37ms) is only valid with --role consume"
     ));
 
@@ -34,8 +34,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         )
         .output()
         .expect("run demo");
-    assert!(!cli.status.success());
-    assert!(String::from_utf8_lossy(&cli.stderr).contains(
+    observability_demo_app::check!(!cli.status.success());
+    observability_demo_app::check!(String::from_utf8_lossy(&cli.stderr).contains(
         "--consumer-subscription-metadata-refresh-interval (41ms) is only valid with --role consume"
     ));
 }
@@ -50,13 +50,15 @@ fn zero_fails_early_and_help_lists_the_flag_once() {
         )
         .output()
         .expect("run demo");
-    assert!(!zero.status.success());
-    assert!(String::from_utf8_lossy(&zero.stderr).contains("invalid value '0ms'"));
+    observability_demo_app::check!(!zero.status.success());
+    observability_demo_app::check!(
+        String::from_utf8_lossy(&zero.stderr).contains("invalid value '0ms'")
+    );
 
     let help = demo().arg("--help").output().expect("help");
-    assert!(help.status.success());
+    observability_demo_app::check!(help.status.success());
     let help = String::from_utf8(help.stdout).expect("UTF-8 help");
-    assert_eq!(
+    observability_demo_app::check_eq!(
         help.split_whitespace()
             .filter(|token| { *token == "--consumer-subscription-metadata-refresh-interval" })
             .count(),

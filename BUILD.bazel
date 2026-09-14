@@ -7,11 +7,15 @@ package(default_visibility = ["//visibility:public"])
 # mutation sweep, via `--@rules_rs_mutants//mutants:config` in //.bazelrc.
 exports_files([
     ".cargo/mutants.toml",
-    ".github/workflows/qualify-m20.yml",
     "Cargo.lock",
     "Cargo.toml",
     "clippy.toml",
 ])
+
+filegroup(
+    name = "workflows",
+    srcs = glob([".github/workflows/*.yml"]),
+)
 
 # Linux targets used by the release image's split transition.
 platform(

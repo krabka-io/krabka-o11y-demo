@@ -16,7 +16,7 @@ Each crate README is the **entry point for someone who sees the crate for the fi
 - **Key features and capabilities**, including which Kafka KIPs or wire APIs it covers.
 - **Quick start or usage example** (for binaries and public API crates).
 - **Configuration reference** (for server binaries).
-- **Links** to design docs, the [KIP matrix](../KIP_MATRIX.md), test coverage reports, and API documentation.
+- **Links** to design docs, the KIP matrix when present, test coverage reports, and API documentation.
 
 ## What Does NOT Belong in READMEs
 
@@ -37,7 +37,7 @@ Each crate README is the **entry point for someone who sees the crate for the fi
 
 <One-line description of what this crate does.>
 
-Part of [Krabka](https://github.com/robot-head/crabka), a Rust implementation of Apache Kafka.
+Part of [Krabka](https://github.com/krabka-io), a Rust implementation of Apache Kafka.
 
 ## Overview
 
@@ -75,7 +75,7 @@ Apache-2.0. Derivative work of [Apache Kafka](https://kafka.apache.org); see [NO
 
 <One-line description of what this binary does.>
 
-Part of [Krabka](https://github.com/robot-head/crabka), a Rust implementation of Apache Kafka.
+Part of [Krabka](https://github.com/krabka-io), a Rust implementation of Apache Kafka.
 
 ## Quick Start
 
@@ -95,7 +95,7 @@ Configuration is read from TOML files and environment variables
 ## Container Image
 
 ```bash
-docker pull ghcr.io/robot-head/crabka-<name>:latest
+docker pull ghcr.io/krabka-io/krabka-<name>:latest
 ```
 
 ## Documentation
@@ -118,7 +118,7 @@ For crates under about 200 lines with a single responsibility:
 
 <One-line description.>
 
-Part of [Krabka](https://github.com/robot-head/crabka), a Rust implementation of Apache Kafka.
+Part of [Krabka](https://github.com/krabka-io), a Rust implementation of Apache Kafka.
 <1-2 sentences on what it does and which crate(s) use it.>
 
 ## License

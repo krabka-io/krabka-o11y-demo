@@ -16,8 +16,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_STREAMS_POLL_INTERVAL", "37ms")
         .output()
         .expect("run demo");
-    assert!(!environment.status.success());
-    assert!(
+    observability_demo_app::check!(!environment.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&environment.stderr)
             .contains("--streams-poll-interval (37ms) is only valid with --role stream")
     );
@@ -27,8 +27,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_STREAMS_POLL_INTERVAL", "37ms")
         .output()
         .expect("run demo");
-    assert!(!cli.status.success());
-    assert!(
+    observability_demo_app::check!(!cli.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&cli.stderr)
             .contains("--streams-poll-interval (41ms) is only valid with --role stream")
     );
@@ -38,8 +38,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_STREAMS_COMMIT_INTERVAL", "43ms")
         .output()
         .expect("run demo");
-    assert!(!commit.status.success());
-    assert!(
+    observability_demo_app::check!(!commit.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&commit.stderr)
             .contains("--streams-commit-interval (43ms) is only valid with --role stream")
     );
@@ -62,13 +62,15 @@ fn zero_values_are_rejected_and_help_lists_each_flag_once() {
             .env(environment, "0")
             .output()
             .expect("run demo");
-        assert!(!zero.status.success());
-        assert!(String::from_utf8_lossy(&zero.stderr).contains("invalid value '0'"));
+        observability_demo_app::check!(!zero.status.success());
+        observability_demo_app::check!(
+            String::from_utf8_lossy(&zero.stderr).contains("invalid value '0'")
+        );
 
         let help = demo().arg("--help").output().expect("help");
-        assert!(help.status.success());
+        observability_demo_app::check!(help.status.success());
         let help = String::from_utf8(help.stdout).expect("UTF-8 help");
-        assert_eq!(
+        observability_demo_app::check_eq!(
             help.split_whitespace()
                 .filter(|token| *token == flag)
                 .count(),

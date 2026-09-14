@@ -1,5 +1,9 @@
 # krabka-o11y-demo
 
+See the [four-signal walkthrough](docs/walkthrough.md), the
+[operator guide](docs/operator-guide.md), and the
+[demo application design](crates/observability-demo-app/DESIGN.md).
+
 The runnable [krabka](https://github.com/krabka-io) observability demo: an
 instrumented Kafka-Streams application, and the full-signal Grafana environment
 it is watched through.
@@ -40,10 +44,10 @@ cd demo/observability && docker compose up -d
 
 Grafana is then at <http://localhost:3000>.
 
-That image is built and published from
-[`robot-head/crabka`](https://github.com/robot-head/crabka), which is the only
-tree holding every binary it bundles. This repository builds the demo
-application from source and consumes the image as a dependency.
+The canonical repositories and images live in the
+[`krabka-io`](https://github.com/krabka-io) organization. The former
+`robot-head/crabka` monorepo is the archived predecessor; this repository now
+consumes the split `krabka-io` images and sibling repositories.
 
 ## Layering
 

@@ -1,0 +1,67 @@
+name: qualify immutable krabka-o11y candidate
+
+on:
+  workflow_call:
+    inputs:
+      o11y_image:
+        description: Immutable ghcr.io/krabka-io/krabka-o11y@sha256 reference
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      o11y_image:
+        description: Immutable ghcr.io/krabka-io/krabka-o11y@sha256 reference
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      KRABKA_REVISION: ${{ github.sha }}
+      KRABKA_O11Y_IMAGE: ${{ inputs.o11y_image }}
+      KRABKA_SMOKE_TIMEOUT_SECONDS: "600"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: require an immutable candidate
+        run: |
+          [[ "${KRABKA_O11Y_IMAGE}" =~ ^ghcr.io/krabka-io/krabka-o11y@sha256:[0-9a-f]{64}$ ]]
+      - name: resolve and record the compose bundle
+        working-directory: demo/observability
+        run: |
+          set -euo pipefail
+          mkdir -p qualification-artifacts/candidate
+          ./verify-images.sh >qualification-artifacts/candidate/platforms.txt
+          docker compose config >qualification-artifacts/candidate/compose.yaml
+          git rev-parse HEAD >qualification-artifacts/candidate/demo-commit.txt
+      - name: cold start and recovery qualification
+        working-directory: demo/observability
+        env:
+          KRABKA_QUALIFICATION_ARTIFACT_DIR: qualification-artifacts/candidate
+          KRABKA_SMOKE_TARGETS: ready metrics logs traces cross-signal profiles gres demo-produce demo-stream demo-consume
+        run: |
+          set -euo pipefail
+          docker compose down -v --remove-orphans
+          docker compose up -d --wait --wait-timeout 600
+          ./qualify-failover.sh
+          ./check-services.sh >qualification-artifacts/candidate/services.txt
+          ./revision-report.sh qualification-artifacts/candidate/revisions.txt
+      - name: checksum evidence
+        if: always()
+        working-directory: demo/observability/qualification-artifacts/candidate
+        run: find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum >SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: o11y-candidate-qualification
+          path: demo/observability/qualification-artifacts/candidate/
+          if-no-files-found: error
+      - name: stop stack
+        if: always()
+        working-directory: demo/observability
+        run: docker compose down -v --remove-orphans

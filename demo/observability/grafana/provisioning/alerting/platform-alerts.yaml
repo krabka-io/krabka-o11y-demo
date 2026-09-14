@@ -1,0 +1,197 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: demo-console
+    receivers:
+      - uid: demo-console-webhook
+        type: webhook
+        settings:
+          url: http://127.0.0.1:9/alerts
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1
+    receiver: demo-console
+    group_by: [grafana_folder, alertname]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+
+groups:
+  - orgId: 1
+    name: platform-contracts
+    folder: Krabka Alerts
+    interval: 1m
+    rules:
+      - uid: krabka-service-down
+        title: Krabka service is down
+        condition: C
+        for: 2m
+        noDataState: Alerting
+        execErrState: Error
+        labels: {severity: critical, area: platform}
+        annotations:
+          summary: A required scrape target is unavailable
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: krabka-prom
+            model:
+              datasource: {type: prometheus, uid: krabka-prom}
+              editorMode: code
+              expr: 'min(up{job=~"broker|schema-registry|alloy|grafana|demo-.+|.+-(distributor|querier|block-builder|compactor)"})'
+              instant: true
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: A
+              conditions: [{evaluator: {type: lt, params: [1]}}]
+              refId: C
+      - uid: krabka-memory-saturation
+        title: Container memory saturation
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels: {severity: warning, area: platform}
+        annotations:
+          summary: A demo container exceeds 85% of its memory limit
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: krabka-prom
+            model:
+              datasource: {type: prometheus, uid: krabka-prom}
+              editorMode: code
+              expr: 'max(container_memory_working_set_bytes / container_spec_memory_limit_bytes)'
+              instant: true
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: A
+              conditions: [{evaluator: {type: gt, params: [0.85]}}]
+              refId: C
+      - uid: krabka-pipeline-stalled
+        title: Order pipeline stalled
+        condition: C
+        for: 3m
+        noDataState: Alerting
+        execErrState: Error
+        labels: {severity: critical, area: demo}
+        annotations:
+          summary: No orders have completed in three minutes
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: krabka-prom
+            model:
+              datasource: {type: prometheus, uid: krabka-prom}
+              editorMode: code
+              expr: 'sum(rate(krabka_demo_orders_processed_total[3m]))'
+              instant: true
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: A
+              conditions: [{evaluator: {type: lt, params: [0.01]}}]
+              refId: C
+      - uid: krabka-trace-feedback-growth
+        title: Trace feedback loop exceeds its span budget
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels: {severity: critical, area: signal-cost}
+        annotations:
+          summary: Trace ingest is above four times the demo steady state
+          description: More than 200 spans/s have entered the trace WAL for five minutes; reduce sampling before the feedback loop saturates the querier.
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: krabka-prom
+            model:
+              datasource: {type: prometheus, uid: krabka-prom}
+              editorMode: code
+              expr: 'sum(rate(krabka_traces_ingest_spans_total[5m]))'
+              instant: true
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: A
+              conditions: [{evaluator: {type: gt, params: [200]}}]
+              refId: C
+      - uid: krabka-trace-index-budget
+        title: Trace query index approaches its failure size
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels: {severity: critical, area: signal-cost}
+        annotations:
+          summary: Trace querier resident index exceeds 200 MiB
+          description: The limit fires below the previously observed 250 MiB failure region.
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: krabka-prom
+            model:
+              datasource: {type: prometheus, uid: krabka-prom}
+              editorMode: code
+              expr: 'max(container_memory_working_set_bytes{container_label_com_docker_compose_service="traces-querier"})'
+              instant: true
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: A
+              conditions: [{evaluator: {type: gt, params: [209715200]}}]
+              refId: C
+      - uid: krabka-demo-cardinality-budget
+        title: Demo metric family exceeds its series budget
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels: {severity: warning, area: signal-cost}
+        annotations:
+          summary: A krabka_demo metric family has more than 500 active series
+          description: Reduce or bound label values before the demo's metrics cost grows further.
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: krabka-prom
+            model:
+              datasource: {type: prometheus, uid: krabka-prom}
+              editorMode: code
+              expr: 'max(count by (__name__) ({__name__=~"krabka_demo_.+"}))'
+              instant: true
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: A
+              conditions: [{evaluator: {type: gt, params: [500]}}]
+              refId: C

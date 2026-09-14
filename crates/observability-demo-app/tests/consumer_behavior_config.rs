@@ -13,8 +13,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_CONSUMER_ASSIGNOR", "cooperative-sticky")
         .output()
         .expect("run demo");
-    assert!(!environment.status.success());
-    assert!(
+    observability_demo_app::check!(!environment.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&environment.stderr)
             .contains("--consumer-assignor is only valid with --role consume")
     );
@@ -24,10 +24,12 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_CONSUMER_ASSIGNOR", "invalid")
         .output()
         .expect("run demo");
-    assert!(!cli.status.success());
+    observability_demo_app::check!(!cli.status.success());
     let stderr = String::from_utf8_lossy(&cli.stderr);
-    assert!(stderr.contains("--consumer-assignor is only valid with --role consume"));
-    assert!(!stderr.contains("invalid assignor"));
+    observability_demo_app::check!(
+        stderr.contains("--consumer-assignor is only valid with --role consume")
+    );
+    observability_demo_app::check!(!stderr.contains("invalid assignor"));
 }
 
 #[test]
@@ -41,17 +43,19 @@ fn invalid_values_fail_and_help_lists_each_flag_once() {
         ])
         .output()
         .expect("run demo");
-    assert!(!invalid.status.success());
-    assert!(String::from_utf8_lossy(&invalid.stderr).contains("invalid isolation level"));
+    observability_demo_app::check!(!invalid.status.success());
+    observability_demo_app::check!(
+        String::from_utf8_lossy(&invalid.stderr).contains("invalid isolation level")
+    );
 
     let help = demo().arg("--help").output().expect("run help");
-    assert!(help.status.success());
+    observability_demo_app::check!(help.status.success());
     let stdout = String::from_utf8_lossy(&help.stdout);
     for flag in [
         "--consumer-auto-offset-reset",
         "--consumer-isolation-level",
         "--consumer-assignor",
     ] {
-        assert_eq!(stdout.matches(flag).count(), 1, "{flag}");
+        observability_demo_app::check_eq!(stdout.matches(flag).count(), 1, "{flag}");
     }
 }

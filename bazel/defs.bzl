@@ -23,7 +23,11 @@ load("//tools/lint:linters.bzl", "clippy_test")
 # in that table whose guarantee must not lapse under a second build system.
 # The clippy tables stay a Cargo-side gate: clippy runs as an aspect here, not
 # as part of a normal build.
-WORKSPACE_RUSTC_FLAGS = ["-Funsafe_code"]
+WORKSPACE_RUSTC_FLAGS = [
+    "-Funsafe_code",
+    "-Wclippy::pedantic",
+    "-Wclippy::clone_on_copy",
+]
 
 def _features():
     return DEP_DATA[native.package_name()]["crate_features"]

@@ -13,8 +13,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_CONSUMER_SESSION_TIMEOUT", "47s")
         .output()
         .expect("run demo");
-    assert!(!environment.status.success());
-    assert!(
+    observability_demo_app::check!(!environment.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&environment.stderr)
             .contains("--consumer-session-timeout (47s) is only valid with --role consume")
     );
@@ -24,8 +24,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_CONSUMER_SESSION_TIMEOUT", "47s")
         .output()
         .expect("run demo");
-    assert!(!cli.status.success());
-    assert!(
+    observability_demo_app::check!(!cli.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&cli.stderr)
             .contains("--consumer-session-timeout (48s) is only valid with --role consume")
     );
@@ -37,6 +37,8 @@ fn zero_fails_before_external_io() {
         .args(["--role", "consume", "--consumer-session-timeout", "0ms"])
         .output()
         .expect("run demo");
-    assert!(!zero.status.success());
-    assert!(String::from_utf8_lossy(&zero.stderr).contains("invalid value '0ms'"));
+    observability_demo_app::check!(!zero.status.success());
+    observability_demo_app::check!(
+        String::from_utf8_lossy(&zero.stderr).contains("invalid value '0ms'")
+    );
 }

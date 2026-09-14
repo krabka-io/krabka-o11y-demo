@@ -3,11 +3,49 @@
 //! This crate holds a deterministic order generator, the Streams topology
 //! shape, and the pure business rules that the traced consumer applies. The
 //! real proto, registry, and broker run lives in `main.rs`.
+//!
+//! Build a reproducible sample order with [`order_at`]:
+//!
+//! ```
+//! use observability_demo_app::{check_eq, order_at};
+//!
+//! let order = order_at(42);
+//! check_eq!(order.order_id, "o-0000000042");
+//! ```
 
 use krabka_client_streams::{DefaultSerde, SchemaSerde};
 use krabka_schema_serde::format::protobuf::ProtobufSerde;
 
 pub mod metrics;
+pub mod pipeline;
+
+/// Assert a boolean expression with `assert2`'s captured-expression diagnostics.
+#[macro_export]
+macro_rules! check {
+    ($condition:expr $(,)?) => { $crate::__assert2::assert!($condition) };
+    ($condition:expr, $($message:tt)+) => { $crate::__assert2::assert!($condition, $($message)+) };
+}
+
+/// Assert equality with `assert2`'s captured-expression diagnostics.
+#[macro_export]
+macro_rules! check_eq {
+    ($left:expr, $right:expr $(,)?) => { $crate::__assert2::assert!($left == $right) };
+    ($left:expr, $right:expr, $($message:tt)+) => {
+        $crate::__assert2::assert!($left == $right, $($message)+)
+    };
+}
+
+/// Assert inequality with `assert2`'s captured-expression diagnostics.
+#[macro_export]
+macro_rules! check_ne {
+    ($left:expr, $right:expr $(,)?) => { $crate::__assert2::assert!($left != $right) };
+    ($left:expr, $right:expr, $($message:tt)+) => {
+        $crate::__assert2::assert!($left != $right, $($message)+)
+    };
+}
+
+#[doc(hidden)]
+pub use assert2 as __assert2;
 
 pub const FILE_DESCRIPTOR_SET_BYTES: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/file_descriptor_set.bin"));

@@ -9,13 +9,13 @@ fn demo() -> Command {
 #[test]
 fn help_lists_each_schema_fetch_retry_flag_once() {
     let output = demo().arg("--help").output().expect("help");
-    assert!(output.status.success());
+    observability_demo_app::check!(output.status.success());
     let help = String::from_utf8(output.stdout).expect("UTF-8 help");
     for flag in [
         "--schema-fetch-retry-initial-backoff",
         "--schema-fetch-retry-max-backoff",
     ] {
-        assert_eq!(
+        observability_demo_app::check_eq!(
             help.split_whitespace()
                 .filter(|token| *token == flag)
                 .count(),
@@ -34,8 +34,10 @@ fn zero_schema_fetch_retry_bounds_are_rejected() {
             .args(["--role", "produce", flag, "0ms"])
             .output()
             .expect("run demo");
-        assert!(!output.status.success());
-        assert!(String::from_utf8_lossy(&output.stderr).contains("invalid value '0ms'"));
+        observability_demo_app::check!(!output.status.success());
+        observability_demo_app::check!(
+            String::from_utf8_lossy(&output.stderr).contains("invalid value '0ms'")
+        );
     }
 }
 
@@ -48,11 +50,11 @@ fn environment_schema_fetch_retry_range_is_validated_before_external_io() {
         .output()
         .expect("run demo");
 
-    assert!(!output.status.success());
+    observability_demo_app::check!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("91ms"));
-    assert!(stderr.contains("37ms"));
-    assert!(stderr.contains("must not exceed"));
+    observability_demo_app::check!(stderr.contains("91ms"));
+    observability_demo_app::check!(stderr.contains("37ms"));
+    observability_demo_app::check!(stderr.contains("must not exceed"));
 }
 
 #[test]
@@ -69,9 +71,9 @@ fn cli_schema_fetch_retry_value_overrides_environment() {
         .output()
         .expect("run demo");
 
-    assert!(!output.status.success());
+    observability_demo_app::check!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("97ms"));
-    assert!(stderr.contains("91ms"));
-    assert!(stderr.contains("must not exceed"));
+    observability_demo_app::check!(stderr.contains("97ms"));
+    observability_demo_app::check!(stderr.contains("91ms"));
+    observability_demo_app::check!(stderr.contains("must not exceed"));
 }

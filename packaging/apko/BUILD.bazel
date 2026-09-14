@@ -82,6 +82,7 @@ image_manifest(
         "org.opencontainers.image.source": "https://github.com/krabka-io/krabka-o11y-demo",
         "org.opencontainers.image.title": "krabka-o11y-demo",
         "org.opencontainers.image.url": "https://github.com/krabka-io/krabka-o11y-demo",
+        "org.opencontainers.image.version": "0.6.0",
     },
     layers = [":application_layer"],
     target_compatible_with = ["@platforms//os:linux"],

@@ -11,8 +11,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT", "37ms")
         .output()
         .expect("run demo");
-    assert!(!environment.status.success());
-    assert!(
+    observability_demo_app::check!(!environment.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&environment.stderr)
             .contains("--streams-broker-dns-timeout (37ms) is only valid with --role stream")
     );
@@ -22,8 +22,8 @@ fn environment_is_used_and_cli_wins_before_external_io() {
         .env("KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT", "37ms")
         .output()
         .expect("run demo");
-    assert!(!cli.status.success());
-    assert!(
+    observability_demo_app::check!(!cli.status.success());
+    observability_demo_app::check!(
         String::from_utf8_lossy(&cli.stderr)
             .contains("--streams-broker-dns-timeout (41ms) is only valid with --role stream")
     );
@@ -36,13 +36,15 @@ fn zero_environment_value_is_rejected_and_help_lists_the_flag_once() {
         .env("KRABKA_DEMO_STREAMS_BROKER_DNS_TIMEOUT", "0ms")
         .output()
         .expect("run demo");
-    assert!(!zero.status.success());
-    assert!(String::from_utf8_lossy(&zero.stderr).contains("invalid value '0ms'"));
+    observability_demo_app::check!(!zero.status.success());
+    observability_demo_app::check!(
+        String::from_utf8_lossy(&zero.stderr).contains("invalid value '0ms'")
+    );
 
     let help = demo().arg("--help").output().expect("help");
-    assert!(help.status.success());
+    observability_demo_app::check!(help.status.success());
     let help = String::from_utf8(help.stdout).expect("UTF-8 help");
-    assert_eq!(
+    observability_demo_app::check_eq!(
         help.split_whitespace()
             .filter(|token| *token == "--streams-broker-dns-timeout")
             .count(),

@@ -2,58 +2,319 @@
   "uid": "krabka-self",
   "title": "Krabka observes Krabka",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "1m",
-  "time": { "from": "now-15m", "to": "now" },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
   "panels": [
     {
-      "id": 1, "type": "timeseries", "title": "Broker scrape health",
-      "datasource": { "type": "prometheus", "uid": "krabka-prom" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "targets": [ { "refId": "A", "expr": "up{job=\"broker\"}", "legendFormat": "{{instance}}" } ]
+      "id": 1,
+      "type": "timeseries",
+      "title": "Broker scrape health",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "krabka-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"broker\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ]
     },
     {
-      "id": 2, "type": "logs", "title": "Recent warnings and errors",
-      "datasource": { "type": "loki", "uid": "krabka-loki" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "targets": [ { "refId": "A", "expr": "{service_name=~\"broker|demo-produce|demo-stream|demo-consume|gres\"} |~ \"WARN|ERROR|anomalous|error\"" } ]
+      "id": 2,
+      "type": "logs",
+      "title": "Recent warnings and errors",
+      "datasource": {
+        "type": "loki",
+        "uid": "krabka-loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=~\"broker|demo-produce|demo-stream|demo-consume|gres\"} |~ \"WARN|ERROR|anomalous|error\""
+        }
+      ]
     },
     {
-      "id": 3, "type": "table", "title": "Recent traces",
-      "datasource": { "type": "tempo", "uid": "krabka-tempo" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "targets": [ { "refId": "A", "queryType": "traceql", "query": "{ .service.name != \"\" }", "limit": 20, "tableType": "spans" } ]
+      "id": 3,
+      "type": "table",
+      "title": "Recent traces",
+      "datasource": {
+        "type": "tempo",
+        "uid": "krabka-tempo"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ .service.name != \"\" }",
+          "limit": 20,
+          "tableType": "spans"
+        }
+      ]
     },
     {
-      "id": 4, "type": "flamegraph", "title": "Broker CPU profile",
-      "datasource": { "type": "grafana-pyroscope-datasource", "uid": "krabka-pyroscope" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "targets": [ { "refId": "A", "profileTypeId": "process_cpu:cpu:nanoseconds:cpu:nanoseconds", "labelSelector": "{service_name=\"broker\"}" } ]
-    },
-    { "id": 10, "type": "row", "title": "Service heap profiles", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 } },
-    {
-      "id": 11, "type": "flamegraph", "title": "Broker heap profile",
-      "datasource": { "type": "grafana-pyroscope-datasource", "uid": "krabka-pyroscope" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
-      "targets": [ { "refId": "A", "profileTypeId": "memory:inuse_space:bytes:space:bytes", "labelSelector": "{service_name=\"broker\"}" } ]
-    },
-    {
-      "id": 12, "type": "flamegraph", "title": "Metrics distributor heap profile",
-      "datasource": { "type": "grafana-pyroscope-datasource", "uid": "krabka-pyroscope" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
-      "targets": [ { "refId": "A", "profileTypeId": "memory:inuse_space:bytes:space:bytes", "labelSelector": "{service_name=\"metrics-distributor\"}" } ]
-    },
-    {
-      "id": 13, "type": "flamegraph", "title": "Logs distributor heap profile",
-      "datasource": { "type": "grafana-pyroscope-datasource", "uid": "krabka-pyroscope" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
-      "targets": [ { "refId": "A", "profileTypeId": "memory:inuse_space:bytes:space:bytes", "labelSelector": "{service_name=\"logs-distributor\"}" } ]
+      "id": 4,
+      "type": "flamegraph",
+      "title": "Broker CPU profile",
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "krabka-pyroscope"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "profileTypeId": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
+          "labelSelector": "{service_name=\"broker\"}"
+        }
+      ]
     },
     {
-      "id": 14, "type": "flamegraph", "title": "Trace/profile distributor heap profile",
-      "datasource": { "type": "grafana-pyroscope-datasource", "uid": "krabka-pyroscope" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 25 },
-      "targets": [ { "refId": "A", "profileTypeId": "memory:inuse_space:bytes:space:bytes", "labelSelector": "{service_name=~\"traces-distributor|profiles-distributor\"}" } ]
+      "id": 10,
+      "type": "row",
+      "title": "Service heap profiles",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "id": 11,
+      "type": "flamegraph",
+      "title": "Broker heap profile",
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "krabka-pyroscope"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "profileTypeId": "memory:inuse_space:bytes:space:bytes",
+          "labelSelector": "{service_name=\"broker\"}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "flamegraph",
+      "title": "Metrics distributor heap profile",
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "krabka-pyroscope"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "profileTypeId": "memory:inuse_space:bytes:space:bytes",
+          "labelSelector": "{service_name=\"metrics-distributor\"}"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "flamegraph",
+      "title": "Logs distributor heap profile",
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "krabka-pyroscope"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "profileTypeId": "memory:inuse_space:bytes:space:bytes",
+          "labelSelector": "{service_name=\"logs-distributor\"}"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "flamegraph",
+      "title": "Trace/profile distributor heap profile",
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "krabka-pyroscope"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "profileTypeId": "memory:inuse_space:bytes:space:bytes",
+          "labelSelector": "{service_name=~\"traces-distributor|profiles-distributor\"}"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Signal cost and feedback-loop budget",
+      "description": "All signal-cost metric names below were verified against the running components' /metrics endpoints. The shared 0.05 sampling ratio keeps each feedback generation below the previous one; Gres is exempt because its spans do not describe the trace ingest path.",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Trace span ingest rate by service",
+      "description": "Budget: 200 spans/s sustained (about 4x the demo's 50 orders/s steady state).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "krabka-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service_name) (rate(krabka_traces_ingest_spans_total[5m]))",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Per-signal WAL input growth",
+      "description": "Accepted bytes/s are the bytes entering each signal WAL.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "krabka-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(krabka_metrics_ingest_bytes_total[5m]))",
+          "legendFormat": "metrics"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(krabka_logs_ingest_bytes_total[5m]))",
+          "legendFormat": "logs"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(krabka_traces_ingest_bytes_total[5m]))",
+          "legendFormat": "traces"
+        },
+        {
+          "refId": "D",
+          "expr": "sum(rate(krabka_profiles_ingest_bytes_total[5m]))",
+          "legendFormat": "profiles"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Trace query index resident size",
+      "description": "The trace querier's resident memory bounds its in-process index. Alert budget: 200 MiB, below the observed failure region around 250 MiB.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "krabka-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 42
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(container_memory_working_set_bytes{container_label_com_docker_compose_service=\"traces-querier\"})",
+          "legendFormat": "trace index resident bytes"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Demo metric series by family",
+      "description": "Cardinality budget: at most 500 active series for every krabka_demo_* family.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "krabka-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 42
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count by (__name__) ({__name__=~\"krabka_demo_.+\"})",
+          "legendFormat": "{{__name__}}"
+        }
+      ]
     }
   ]
 }
