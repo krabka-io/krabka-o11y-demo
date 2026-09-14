@@ -61,6 +61,10 @@ x-o11y-image: &o11y-image
   image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:3032e3ba2c11a6c014e499edabd7fb6f8939f9d7d40ae659bd4dfbdad1051efa}
   restart: unless-stopped
 
+x-gres-image: &gres-image
+  image: ${KRABKA_GRES_IMAGE:-ghcr.io/krabka-io/gres@sha256:4117982fa13ab02d86e76ec70f267acfe884fa3c99befe1bdc690b9d5ea0984a}
+  restart: unless-stopped
+
 x-legacy-demo-env: &legacy-demo-env
   CRABKA_DEMO_BOOTSTRAP: broker:9092
   CRABKA_DEMO_REGISTRY: http://schema-registry:8081
@@ -626,8 +630,8 @@ services:
       broker: {condition: service_healthy}
 
   gres:
-    <<: [*krabka-image, *gres-res]
-    command: ["${KRABKA_GRES_BIN:-crabka-gres}", "--listen=0.0.0.0:5433", "--substrate-bootstrap=broker:9092", "--tenant=demo", "--cache-dir=/data"]
+    <<: [*gres-image, *gres-res]
+    command: ["--listen=0.0.0.0:5433", "--substrate-bootstrap=broker:9092", "--tenant=demo", "--cache-dir=/data"]
     environment:
       <<: *otlp-env
       OTEL_SERVICE_NAME: gres

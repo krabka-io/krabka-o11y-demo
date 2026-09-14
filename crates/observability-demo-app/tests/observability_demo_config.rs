@@ -236,7 +236,7 @@ fn recovery_qualification_routes_and_seeds_logs_and_traces() {
         "KRABKA_DEMO_IMAGE=ghcr.io/robot-head/crabka-demo:latest",
         "KRABKA_SCHEMA_REGISTRY_BIN=krabka-schema-registry",
         "KRABKA_CLI_BIN=krabka",
-        "KRABKA_GRES_BIN=krabka-gres",
+        "KRABKA_GRES_IMAGE=krabka-io/gres:dev",
     ] {
         assert2::assert!(readme.contains(setting));
     }
@@ -482,6 +482,10 @@ fn qualification_images_are_explicit() {
         compose.contains("KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:3032e3ba2c11a6c014e499edabd7fb6f8939f9d7d40ae659bd4dfbdad1051efa"),
         "the observability roles should share one overridable published image"
     );
+    check!(
+        compose.contains("KRABKA_GRES_IMAGE:-ghcr.io/krabka-io/gres@sha256:4117982fa13ab02d86e76ec70f267acfe884fa3c99befe1bdc690b9d5ea0984a"),
+        "gres should use one overridable immutable published image"
+    );
     for executable in ["/usr/bin/krabka-format", "/usr/bin/krabka-guard"] {
         check!(
             compose.contains(executable),
@@ -503,13 +507,16 @@ fn qualification_images_are_explicit() {
     for bin_override in [
         "KRABKA_SCHEMA_REGISTRY_BIN:-crabka-schema-registry",
         "KRABKA_CLI_BIN:-crabka",
-        "KRABKA_GRES_BIN:-crabka-gres",
     ] {
         check!(
             compose.contains(bin_override),
             "local rebuilt images should be able to override {bin_override}"
         );
     }
+    check!(
+        !compose.contains("KRABKA_GRES_BIN"),
+        "the Gres command should not repeat the published image entrypoint"
+    );
     check!(
         compose
             .contains("CRABKA_OTLP_HEARTBEAT_INTERVAL: \"${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}\""),

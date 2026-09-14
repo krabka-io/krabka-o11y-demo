@@ -125,7 +125,16 @@ docker load < krabka-demo.tar
 export KRABKA_DEMO_IMAGE=ghcr.io/robot-head/crabka-demo:latest
 export KRABKA_SCHEMA_REGISTRY_BIN=krabka-schema-registry
 export KRABKA_CLI_BIN=krabka
-export KRABKA_GRES_BIN=krabka-gres
+
+cd ../gres
+case "$(uname -m)" in
+  arm64|aarch64) gres_platform=//:linux_arm64 ;;
+  x86_64|amd64) gres_platform=//:linux_amd64 ;;
+  *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+bazel run -c opt --platforms="${gres_platform}" //packaging/apko:load
+export KRABKA_GRES_IMAGE=krabka-io/gres:dev
+cd ../krabka-o11y-demo
 cd demo/observability && docker compose up -d
 ```
 
@@ -169,10 +178,10 @@ delete, so there is always a fresh trace to open. The **Krabka — Gres Query
 Traces** dashboard is the quickest way to start. TraceQL
 `{ resource.service.name = "gres" }` in Explore also works.
 
-Both services need a demo image that was built after gres joined it. If
-`gres-setup` reports `unrecognized subcommand 'gres'`, or if `gres` cannot find
-`krabka-gres`, the local image is older than that change. [Rebuild it from
-source](#rebuild-from-source).
+`gres` runs from the separately published `ghcr.io/krabka-io/gres` image. The
+one-shot `gres-setup` service still uses the demo image because it needs the
+`crabka gres` tenant-management command. If setup reports `unrecognized
+subcommand 'gres'`, [rebuild the demo image from source](#rebuild-from-source).
 
 One statement produces a waterfall similar to this:
 
