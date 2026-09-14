@@ -121,9 +121,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{check, check_eq};
-
     use super::*;
+    use crate::{check, check_eq};
 
     #[test]
     fn headers_cover_trace_business_missing_and_invalid_values() {

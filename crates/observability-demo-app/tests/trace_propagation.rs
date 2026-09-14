@@ -1,8 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use krabka_client_consumer::Header as ConsumerHeader;
-use observability_demo_app::pipeline::{continue_trace, order_headers, process_order};
-use observability_demo_app::{check, check_eq, order_at};
+use observability_demo_app::{
+    check, check_eq, order_at,
+    pipeline::{continue_trace, order_headers, process_order},
+};
 use opentelemetry::trace::{TraceContextExt as _, TracerProvider as _};
 use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider};
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
