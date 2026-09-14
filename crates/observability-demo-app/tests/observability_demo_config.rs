@@ -92,6 +92,25 @@ fn published_ports_bind_to_loopback_with_an_override() {
 }
 
 #[test]
+fn every_container_defaults_to_arm64_with_a_ci_override() {
+    let compose = compose();
+    for (name, definition) in compose["services"].as_mapping().expect("services") {
+        if !definition["image"].is_null() {
+            observability_demo_app::check_eq!(
+                definition["platform"].as_str(),
+                Some("${KRABKA_PLATFORM:-linux/arm64}"),
+                "{}",
+                name.as_str().unwrap_or("service")
+            );
+        }
+    }
+    let release = read(".github/workflows/qualify-release.yml");
+    observability_demo_app::check!(
+        release.contains("KRABKA_PLATFORM: linux/${{ matrix.architecture }}")
+    );
+}
+
+#[test]
 fn long_running_http_services_have_healthchecks() {
     let compose = compose();
     for name in ["broker", "rustfs", "alloy", "cadvisor", "grafana"] {

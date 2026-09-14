@@ -27,6 +27,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     env:
+      KRABKA_PLATFORM: linux/${{ matrix.architecture }}
       KRABKA_REVISION: ${{ github.sha }}
       IMAGE: ghcr.io/krabka-io/krabka-o11y-demo
       TAG: ${{ inputs.tag || github.event.release.tag_name }}

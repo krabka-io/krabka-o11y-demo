@@ -38,6 +38,7 @@ x-otlp-env: &otlp-env
 # builds with Bazel. README.md shows how to load local builds.
 x-demo-image: &demo-image
   image: ${KRABKA_DEMO_IMAGE:-ghcr.io/krabka-io/krabka-o11y-demo@sha256:b79f9dbe16d30671073ca8a40df2fb60b1faab898bdb2d8793d173f3e2d1111f}
+  platform: ${KRABKA_PLATFORM:-linux/arm64}
   restart: unless-stopped
   healthcheck:
     test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9404/metrics"]
@@ -48,6 +49,7 @@ x-demo-image: &demo-image
 
 x-schema-registry-image: &schema-registry-image
   image: ${KRABKA_SCHEMA_REGISTRY_IMAGE:-ghcr.io/krabka-io/krabka-schema-registry@sha256:ad106d2b623b7a39fc0566ecbff077a662b544314e2de61357a381e6969cbef9}
+  platform: ${KRABKA_PLATFORM:-linux/arm64}
   restart: unless-stopped
   healthcheck:
     test: ["CMD", "/usr/bin/krabka-schema-registry", "--help"]
@@ -58,10 +60,12 @@ x-schema-registry-image: &schema-registry-image
 
 x-broker-image: &broker-image
   image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:6b51b36166590f07a4f28bd480296e59ad14162d4bc518a50678fa0f20fae8df}
+  platform: ${KRABKA_PLATFORM:-linux/arm64}
   restart: unless-stopped
 
 x-o11y-image: &o11y-image
   image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:3032e3ba2c11a6c014e499edabd7fb6f8939f9d7d40ae659bd4dfbdad1051efa}
+  platform: ${KRABKA_PLATFORM:-linux/arm64}
   restart: unless-stopped
   healthcheck:
     test: ["CMD", "/bin/sh", "-c", "test -r /proc/1/stat"]
@@ -72,6 +76,7 @@ x-o11y-image: &o11y-image
 
 x-gres-image: &gres-image
   image: ${KRABKA_GRES_IMAGE:-ghcr.io/krabka-io/gres@sha256:4117982fa13ab02d86e76ec70f267acfe884fa3c99befe1bdc690b9d5ea0984a}
+  platform: ${KRABKA_PLATFORM:-linux/arm64}
   restart: unless-stopped
 
 # ---------------------------------------------------------------------------
@@ -146,6 +151,7 @@ services:
   # with `docker compose down -v` and restart.
   broker-permissions:
     image: mirror.gcr.io/library/busybox:1.38@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
+    platform: ${KRABKA_PLATFORM:-linux/arm64}
     <<: *setup-res
     restart: "no"
     command: ["chown", "65532:65532", "/data"]
@@ -153,6 +159,7 @@ services:
 
   broker-format:
     image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:6b51b36166590f07a4f28bd480296e59ad14162d4bc518a50678fa0f20fae8df}
+    platform: ${KRABKA_PLATFORM:-linux/arm64}
     <<: *setup-res
     restart: "no"
     entrypoint: ["/usr/bin/krabka-format"]
@@ -186,6 +193,7 @@ services:
 
   rustfs-permissions:
     image: mirror.gcr.io/library/busybox:1.38@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
+    platform: ${KRABKA_PLATFORM:-linux/arm64}
     <<: *setup-res
     restart: "no"
     command: ["sh", "-c", "mkdir -p /data && chown -R 10001:10001 /data"]
@@ -193,6 +201,7 @@ services:
 
   rustfs:
     image: mirror.gcr.io/rustfs/rustfs:latest@sha256:97171b3d72cd47dc81000f92ea84de25608bfc35a94c965501afaeb5d99f6035
+    platform: ${KRABKA_PLATFORM:-linux/arm64}
     restart: unless-stopped
     # Resource caps (see x-rustfs-res / .env); the cap bounds object-store cache and query bursts.
     <<: *rustfs-res
@@ -239,6 +248,7 @@ services:
 
   rustfs-setup:
     image: mirror.gcr.io/amazon/aws-cli:latest@sha256:e8467f2c319f9bc9a1471808a69949a76915e9c95eaf4a09ece9f9e85fd32747
+    platform: ${KRABKA_PLATFORM:-linux/arm64}
     <<: *setup-res
     restart: "no"
     environment: {<<: *s3-env}
@@ -259,6 +269,7 @@ services:
   # topics against the pinned broker.
   topic-setup:
     image: mirror.gcr.io/apache/kafka:4.3.1@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837
+    platform: ${KRABKA_PLATFORM:-linux/arm64}
     <<: *setup-res
     restart: "no"
     depends_on:
@@ -283,6 +294,7 @@ services:
   # roles fetch their schema at startup and wait for this service.
   schema-registry-ready:
     image: mirror.gcr.io/library/busybox:1.38@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
+    platform: ${KRABKA_PLATFORM:-linux/arm64}
     <<: *setup-res
     restart: "no"
     entrypoint:
@@ -503,6 +515,7 @@ services:
   # ---- COLLECTOR + GRAFANA ----
   alloy:
     image: mirror.gcr.io/grafana/alloy:v1.18.1@sha256:0f4434c92b3e6cdac38bb129b344e1790c246f7b6e2eaffcc16a5fa363240e33
+    platform: ${KRABKA_PLATFORM:-linux/arm64}
     <<: *alloy-res
     command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
     volumes:
@@ -519,6 +532,7 @@ services:
 
   cadvisor:
     image: ghcr.io/google/cadvisor:v0.60.5@sha256:763aecf1c32c2be8a1a75f9abfc2fc461005c9dbbaa39cb356b354aac1296dbe
+    platform: ${KRABKA_PLATFORM:-linux/arm64}
     <<: *cadvisor-res
     command:
       - "--docker_only=true"
@@ -538,6 +552,7 @@ services:
 
   grafana:
     image: mirror.gcr.io/grafana/grafana:13.2@sha256:f772d434e8fab0049deb2b1b30abd43342bcfca1537614aa8d36080232cf4283
+    platform: ${KRABKA_PLATFORM:-linux/arm64}
     <<: *grafana-res
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
@@ -650,6 +665,7 @@ services:
   # SQL password. Idempotent: `describe` succeeds once the record exists.
   gres-setup:
     image: ${KRABKA_CLI_IMAGE:-ghcr.io/krabka-io/krabka-cli@sha256:6893ddac70cfd48944755719e2e94ca4468827cc641f0994e0d72fe479e33a0d}
+    platform: ${KRABKA_PLATFORM:-linux/arm64}
     <<: *setup-res
     restart: "no"
     entrypoint:
@@ -708,6 +724,7 @@ services:
   # spin as fast as gres will answer; raise it to quieten the demo.
   gres-workload:
     image: mirror.gcr.io/library/postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    platform: ${KRABKA_PLATFORM:-linux/arm64}
     <<: *demo-res
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/workload.sh"]

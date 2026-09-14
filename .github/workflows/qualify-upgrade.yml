@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
+      KRABKA_PLATFORM: linux/amd64
       KRABKA_REVISION: ${{ github.sha }}
       PREVIOUS_IMAGE: ${{ inputs.previous_demo_image }}
       CANDIDATE_IMAGE: ${{ inputs.candidate_demo_image }}

@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     env:
+      KRABKA_PLATFORM: linux/amd64
       KRABKA_REVISION: ${{ github.sha }}
       KRABKA_O11Y_IMAGE: ${{ inputs.o11y_image }}
       KRABKA_SMOKE_TIMEOUT_SECONDS: "600"

@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
+      KRABKA_PLATFORM: linux/amd64
       KRABKA_REVISION: ${{ github.sha }}
       # The long-running services that qualification starts, with the
       # long-running services they depend on. check-services.sh fails when one
