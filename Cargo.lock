@@ -2635,7 +2635,7 @@ dependencies = [
 [[package]]
 name = "krabka-client-streams"
 version = "0.4.0"
-source = "git+https://github.com/krabka-io/krabka-streams-rs?rev=9547eb8ba70fa0407cd51c82d4c329d6d8c57824#9547eb8ba70fa0407cd51c82d4c329d6d8c57824"
+source = "git+https://github.com/krabka-io/krabka-streams-rs?rev=74d957c72f3c60bcd6e8816c79cccd7ffab7f59b#74d957c72f3c60bcd6e8816c79cccd7ffab7f59b"
 dependencies = [
  "async-trait",
  "bon",
