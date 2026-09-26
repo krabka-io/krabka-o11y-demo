@@ -96,7 +96,7 @@ krabka-security = { git = "https://github.com/krabka-io/krabka-protocol", rev = 
 krabka-trace-context = { git = "https://github.com/krabka-io/krabka-protocol", rev = "b2a5ed75f31a666f87124a973e086477d64b73d2" }
 krabka-units = { git = "https://github.com/krabka-io/krabka-protocol", rev = "b2a5ed75f31a666f87124a973e086477d64b73d2" }
 krabka-voters = { git = "https://github.com/krabka-io/krabka-protocol", rev = "b2a5ed75f31a666f87124a973e086477d64b73d2" }
-krabka-client-streams = { git = "https://github.com/krabka-io/krabka-streams-rs", rev = "9547eb8ba70fa0407cd51c82d4c329d6d8c57824" }
+krabka-client-streams = { git = "https://github.com/krabka-io/krabka-streams-rs", rev = "af5c464f0a448169b8b9bf10cb3b0effcd2286d1" }
 # krabka-streams-rs used to vendor its own `krabka-schema-serde`; that member
 # is gone, and the crate now comes from krabka-schema-registry, which is the
 # copy krabka-client-streams itself resolves.
