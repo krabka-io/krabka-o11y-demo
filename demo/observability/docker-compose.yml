@@ -77,7 +77,7 @@ x-o11y-image: &o11y-image
     start_period: 10s
 
 x-gres-image: &gres-image
-  image: ${KRABKA_GRES_IMAGE:-ghcr.io/krabka-io/gres@sha256:4117982fa13ab02d86e76ec70f267acfe884fa3c99befe1bdc690b9d5ea0984a}
+  image: ${KRABKA_GRES_IMAGE:-ghcr.io/krabka-io/gres@sha256:95404b6b6384f6f91d493f9d449709235d7445c4835d45186933e71bab0d0864}
   platform: ${KRABKA_PLATFORM:-linux/arm64}
   restart: unless-stopped
 
