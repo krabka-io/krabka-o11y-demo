@@ -25,6 +25,11 @@ on:
   schedule:
     - cron: "30 5 * * *"
   workflow_dispatch:
+    inputs:
+      build_candidate:
+        description: Build the current source image before qualification
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -51,11 +56,13 @@ jobs:
         working-directory: demo/observability
         run: ./verify-images.sh
       - uses: aspect-build/setup-aspect@2306377a61c45954ab2df7c7311698b109364352 # v2026.26.9
+        if: github.event_name != 'workflow_dispatch' || inputs.build_candidate
         with:
           bazelisk-cache: true
           disk-cache: false
           repository-cache: true
       - name: build and load candidate demo image
+        if: github.event_name != 'workflow_dispatch' || inputs.build_candidate
         run: |
           set -euo pipefail
           bazel run -c opt //packaging/apko:load
