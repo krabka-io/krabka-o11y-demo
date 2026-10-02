@@ -1528,7 +1528,7 @@ mod tests {
             "--consumer-auto-offset-reset",
             "earliest",
             "--consumer-isolation-level",
-            "read-committed",
+            "read_committed",
             "--consumer-assignor",
             "cooperative-sticky",
         ])
