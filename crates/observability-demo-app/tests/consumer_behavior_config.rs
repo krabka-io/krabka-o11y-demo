@@ -39,7 +39,7 @@ fn invalid_values_fail_and_help_lists_each_flag_once() {
             "--role",
             "consume",
             "--consumer-isolation-level",
-            "read_committed",
+            "read_invalid",
         ])
         .output()
         .expect("run demo");
