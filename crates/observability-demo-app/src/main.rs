@@ -958,7 +958,7 @@ async fn main() -> Result<(), BoxError> {
             .await?;
         }
         Role::Stream => {
-            run_stream(&cli, &metrics, stream_runtime).await?;
+            Box::pin(run_stream(&cli, &metrics, stream_runtime)).await?;
         }
         Role::Consume => {
             run_consume(&cli, &metrics, consumer_runtime).await?;
@@ -1078,20 +1078,14 @@ async fn run_produce(
             };
             let mut sent = false;
             for attempt in 1..=3 {
-                let delivery = producer.send(record.clone()).await;
-                let result = delivery.await.map_err(|error| error.to_string());
-                match result {
-                    Ok(Ok(_metadata)) => {
+                match producer.send(record.clone()).await {
+                    Ok(_metadata) => {
                         sent = true;
                         break;
                     }
-                    Ok(Err(error)) => {
-                        metrics.record_error(PipelineErrorKind::ProducerSend);
-                        tracing::warn!(attempt, error = %error, "producer send failed; retrying");
-                    }
                     Err(error) => {
                         metrics.record_error(PipelineErrorKind::ProducerSend);
-                        tracing::warn!(attempt, error = %error, "producer delivery failed; retrying");
+                        tracing::warn!(attempt, error = %error, "producer send failed; retrying");
                     }
                 }
             }
@@ -1166,7 +1160,7 @@ async fn run_stream(
         })
         .to(cli.output_topic.clone());
     tracing::info!("orders-analytics streams app starting");
-    let streams = app.run(topology).await?;
+    let streams = Box::pin(app.run(topology)).await?;
     shutdown_signal().await;
     streams.close().await?;
     Ok(())
@@ -1200,12 +1194,12 @@ async fn run_consume(
         .fetch_max(runtime.fetch_max)
         .fetch_partition_max(runtime.fetch_partition_max)
         .session_timeout(runtime.session_timeout)
-        .rebalance_timeout(runtime.rebalance_timeout)
+        .max_poll_interval(runtime.rebalance_timeout)
         .heartbeat_interval(runtime.heartbeat_interval)
         .request_timeout(runtime.request_timeout)
         .auto_offset_reset(runtime.auto_offset_reset)
         .isolation_level(runtime.isolation_level)
-        .assignor(runtime.assignor)
+        .assignors(vec![runtime.assignor])
         .build()
         .await?;
     tracing::info!(topic = %cli.input_topic, "order processor starting");
