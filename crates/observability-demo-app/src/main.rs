@@ -33,7 +33,7 @@ use krabka_client_core::{
     ClientFrameMax, ConnectionDispatchQueueCapacity, DEFAULT_CONNECTION_DISPATCH_QUEUE_CAPACITY,
     FetchMinBytes,
 };
-use krabka_client_producer::{Acks, Producer, ProducerRecord};
+use krabka_client_producer::{Acks, Producer, ProducerError, ProducerRecord, RecordMetadata};
 use krabka_client_streams::{
     ClientDnsTimeout, SchemaSerde, Serde, StreamsCommitInterval,
     StreamsInteractiveQueryQueueCapacity, StreamsJoinRetryBackoff, StreamsLeaveHeartbeatTimeout,
@@ -1076,20 +1076,7 @@ async fn run_produce(
                 headers,
                 ..Default::default()
             };
-            let mut sent = false;
-            for attempt in 1..=3 {
-                match producer.send(record.clone()).await {
-                    Ok(_metadata) => {
-                        sent = true;
-                        break;
-                    }
-                    Err(error) => {
-                        metrics.record_error(PipelineErrorKind::ProducerSend);
-                        tracing::warn!(attempt, error = %error, "producer send failed; retrying");
-                    }
-                }
-            }
-            if !sent {
+            if !send_with_retry(&metrics, || producer.send(record.clone())).await {
                 tracing::Span::current().record("otel.status_code", "ERROR");
                 tracing::error!("producer send failed after three attempts");
                 return Ok::<(), BoxError>(());
@@ -1112,6 +1099,22 @@ async fn run_produce(
         }
     }
     Ok(())
+}
+
+async fn send_with_retry<F>(metrics: &DemoMetrics, mut send: impl FnMut() -> F) -> bool
+where
+    F: Future<Output = Result<RecordMetadata, ProducerError>>,
+{
+    for attempt in 1..=3 {
+        match send().await {
+            Ok(_) => return true,
+            Err(error) => {
+                metrics.record_error(PipelineErrorKind::ProducerSend);
+                tracing::warn!(attempt, error = %error, "producer send failed; retrying");
+            }
+        }
+    }
+    false
 }
 
 async fn run_stream(
@@ -1388,6 +1391,43 @@ mod tests {
     use clap::CommandFactory;
 
     use super::*;
+
+    #[tokio::test]
+    async fn sends_retry_delivery_errors_and_stop_at_success_or_three_attempts() {
+        for (succeed_at, expected_attempts, expected_errors) in [(1, 1, 0), (2, 2, 1), (4, 3, 3)] {
+            let metrics = DemoMetrics::new();
+            let mut attempts = 0;
+            let sent = send_with_retry(&metrics, || {
+                attempts += 1;
+                std::future::ready(if attempts == succeed_at {
+                    Ok(RecordMetadata {
+                        topic: "orders".into(),
+                        partition: 0,
+                        offset: 0,
+                        timestamp_ms: -1,
+                        serialized_key_size: -1,
+                        serialized_value_size: 1,
+                    })
+                } else {
+                    Err(ProducerError::Server(29))
+                })
+            })
+            .await;
+            assert2::assert!(sent == (succeed_at <= 3));
+            assert2::assert!(attempts == expected_attempts);
+            let mut rendered = String::new();
+            prometheus_client::encoding::text::encode(
+                &mut rendered,
+                &*metrics.registry.lock().await,
+            )
+            .unwrap();
+            if expected_errors > 0 {
+                assert2::assert!(rendered.contains(&format!(
+                    "krabka_demo_pipeline_errors_total{{kind=\"producer_send\"}} {expected_errors}"
+                )));
+            }
+        }
+    }
 
     #[test]
     fn runtime_configs_bind_the_validated_role_settings() {
