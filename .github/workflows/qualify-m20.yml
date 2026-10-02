@@ -5,11 +5,23 @@ on:
     paths:
       - .github/workflows/qualify-m20.yml
       - demo/observability/**
+      - Cargo.toml
+      - Cargo.lock
+      - crates/**
+      - MODULE.bazel
+      - MODULE.bazel.lock
+      - packaging/apko/**
   push:
     branches: [main]
     paths:
       - .github/workflows/qualify-m20.yml
       - demo/observability/**
+      - Cargo.toml
+      - Cargo.lock
+      - crates/**
+      - MODULE.bazel
+      - MODULE.bazel.lock
+      - packaging/apko/**
   schedule:
     - cron: "30 5 * * *"
   workflow_dispatch:
@@ -38,6 +50,22 @@ jobs:
       - name: verify immutable image provenance and architecture
         working-directory: demo/observability
         run: ./verify-images.sh
+      - uses: aspect-build/setup-aspect@2306377a61c45954ab2df7c7311698b109364352 # v2026.26.9
+        with:
+          bazelisk-cache: true
+          disk-cache: false
+          repository-cache: true
+      - name: build and load candidate demo image
+        run: |
+          set -euo pipefail
+          bazel run -c opt //packaging/apko:load
+          candidate="krabka-io/krabka-o11y-demo:sha-${GITHUB_SHA}"
+          docker tag krabka-io/krabka-o11y-demo:dev "${candidate}"
+          echo "KRABKA_DEMO_IMAGE=${candidate}" >>"${GITHUB_ENV}"
+          mkdir -p demo/observability/qualification-artifacts/run
+          manifest="$(bazel cquery -c opt //packaging/apko:image_manifest_blob --output=files)"
+          sha256sum "${manifest}" >demo/observability/qualification-artifacts/run/candidate-manifest.sha256
+          docker image inspect "${candidate}" >demo/observability/qualification-artifacts/run/candidate-image.json
       - name: start pinned stack
         working-directory: demo/observability
         run: |
