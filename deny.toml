@@ -94,7 +94,19 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
-    # First-party siblings are revision-pinned in [patch.crates-io].
+    # First-party siblings are revision-pinned in [patch.crates-io    "https://github.com/krabka-io/connectrpc-axum",
+    "https://github.com/krabka-io/krabka-broker",
+    "https://github.com/krabka-io/krabka-cli",
+    "https://github.com/krabka-io/krabka-client-rs",
+    "https://github.com/krabka-io/krabka-connect",
+    "https://github.com/krabka-io/krabka-gateway",
+    "https://github.com/krabka-io/krabka-o11y",
+    "https://github.com/krabka-io/krabka-operator",
+    "https://github.com/krabka-io/krabka-protocol",
+    "https://github.com/krabka-io/krabka-rebalancer",
+    "https://github.com/krabka-io/krabka-schema-registry",
+    "https://github.com/krabka-io/krabka-streams-rs",
+].
     "https://github.com/krabka-io/krabka-broker",
     "https://github.com/krabka-io/krabka-client-rs",
     "https://github.com/krabka-io/krabka-protocol",
