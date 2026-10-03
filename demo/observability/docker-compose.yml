@@ -49,7 +49,8 @@ x-demo-image: &demo-image
 
 x-schema-registry-image: &schema-registry-image
   image: ${KRABKA_SCHEMA_REGISTRY_IMAGE:-ghcr.io/krabka-io/krabka-schema-registry@sha256:ad106d2b623b7a39fc0566ecbff077a662b544314e2de61357a381e6969cbef9}
-  platform: ${KRABKA_PLATFORM:-linux/amd64}
+  # Schema Registry publishes AMD64; ARM64 hosts emulate this dependency.
+  platform: ${KRABKA_SCHEMA_REGISTRY_PLATFORM:-linux/amd64}
   restart: unless-stopped
   healthcheck:
     test: ["CMD", "/usr/bin/krabka-schema-registry", "--help"]

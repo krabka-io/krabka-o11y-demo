@@ -34,6 +34,11 @@ jobs:
       KRABKA_SMOKE_TIMEOUT_SECONDS: "600"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: enable the AMD64 Schema Registry on ARM64
+        if: matrix.architecture == 'arm64'
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: amd64
       - name: resolve immutable multi-platform candidate
         run: |
           set -euo pipefail
