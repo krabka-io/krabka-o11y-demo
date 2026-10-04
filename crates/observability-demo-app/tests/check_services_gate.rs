@@ -10,8 +10,8 @@ use std::{
     process::Command,
 };
 
-const O11Y_IMAGE: &str = "ghcr.io/krabka-io/krabka-o11y@sha256:3032e3ba2c11a6c014e499edabd7fb6f8939f9d7d40ae659bd4dfbdad1051efa";
-const O11Y_DIGEST: &str = "sha256:3032e3ba2c11a6c014e499edabd7fb6f8939f9d7d40ae659bd4dfbdad1051efa";
+const O11Y_IMAGE: &str = "ghcr.io/krabka-io/krabka-o11y@sha256:98ec741d3960a80d2146eadfcd8951c4dcedd1926b23e4584e038329bcfb4d17";
+const O11Y_DIGEST: &str = "sha256:98ec741d3960a80d2146eadfcd8951c4dcedd1926b23e4584e038329bcfb4d17";
 
 const STUB_DOCKER: &str = r#"#!/bin/sh
 case "$1 $2" in
