@@ -22,9 +22,7 @@ blocks.
 
 ## Run
 
-By default, this **pulls the prebuilt images** from GHCR. You do not need a
-local build. Each service runs the image of the repository that owns its binary,
-and Compose pins each image by digest:
+The demo pulls prebuilt images from GHCR. Compose pins dependency images by digest. Demo services use the `v0.6.1` release tag. Each service uses the image of the repository that owns its binary.
 
 | Services | Image | Override |
 | --- | --- | --- |

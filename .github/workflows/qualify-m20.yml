@@ -52,9 +52,6 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: free disk
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-      - name: verify immutable image provenance and architecture
-        working-directory: demo/observability
-        run: ./verify-images.sh
       - uses: aspect-build/setup-aspect@2306377a61c45954ab2df7c7311698b109364352 # v2026.26.9
         if: github.event_name != 'workflow_dispatch' || inputs.build_candidate
         with:
@@ -73,6 +70,9 @@ jobs:
           manifest="$(bazel cquery -c opt //packaging/apko:image_manifest_blob --output=files)"
           sha256sum "${manifest}" >demo/observability/qualification-artifacts/run/candidate-manifest.sha256
           docker image inspect "${candidate}" >demo/observability/qualification-artifacts/run/candidate-image.json
+      - name: verify image digests and architecture
+        working-directory: demo/observability
+        run: ./verify-images.sh
       - name: start pinned stack
         working-directory: demo/observability
         run: |

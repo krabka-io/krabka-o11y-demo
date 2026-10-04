@@ -33,11 +33,11 @@ x-otlp-env: &otlp-env
   MALLOC_CONF: "prof:true,prof_active:true,lg_prof_sample:20,background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:1000"
 
 # Each service pulls the image of the repository that owns its binary. Every
-# default is pinned by digest, and every image has an override variable. The
+# dependency default is pinned by digest; demo services use the release tag. The
 # demo-* services run ghcr.io/krabka-io/krabka-o11y-demo, which this repository
 # builds with Bazel. README.md shows how to load local builds.
 x-demo-image: &demo-image
-  image: ${KRABKA_DEMO_IMAGE:-ghcr.io/krabka-io/krabka-o11y-demo@sha256:7411bb0d5e44d9a94550a4f0d67ef570cfb445695f4f3d11989803f90c650a84}
+  image: ${KRABKA_DEMO_IMAGE:-ghcr.io/krabka-io/krabka-o11y-demo:v0.6.1}
   platform: ${KRABKA_PLATFORM:-linux/amd64}
   restart: unless-stopped
   healthcheck:
@@ -48,8 +48,9 @@ x-demo-image: &demo-image
     start_period: 10s
 
 x-schema-registry-image: &schema-registry-image
-  image: ${KRABKA_SCHEMA_REGISTRY_IMAGE:-ghcr.io/krabka-io/krabka-schema-registry@sha256:ad106d2b623b7a39fc0566ecbff077a662b544314e2de61357a381e6969cbef9}
-  platform: ${KRABKA_PLATFORM:-linux/amd64}
+  image: ${KRABKA_SCHEMA_REGISTRY_IMAGE:-ghcr.io/krabka-io/krabka-schema-registry@sha256:eb6213cafd08129e08af7a7f60eaee661ba84da44f67698464541e9cb062978a}
+  # Schema Registry publishes AMD64; ARM64 hosts emulate this dependency.
+  platform: ${KRABKA_SCHEMA_REGISTRY_PLATFORM:-linux/amd64}
   restart: unless-stopped
   healthcheck:
     test: ["CMD", "/usr/bin/krabka-schema-registry", "--help"]
@@ -59,12 +60,12 @@ x-schema-registry-image: &schema-registry-image
     start_period: 10s
 
 x-broker-image: &broker-image
-  image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:6b51b36166590f07a4f28bd480296e59ad14162d4bc518a50678fa0f20fae8df}
+  image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:54ae711e5a7c8bdb03414402722f5c41dd50980ab315ab84d0803cca775fb463}
   platform: ${KRABKA_PLATFORM:-linux/amd64}
   restart: unless-stopped
 
 x-o11y-image: &o11y-image
-  image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:3032e3ba2c11a6c014e499edabd7fb6f8939f9d7d40ae659bd4dfbdad1051efa}
+  image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:98ec741d3960a80d2146eadfcd8951c4dcedd1926b23e4584e038329bcfb4d17}
   platform: ${KRABKA_PLATFORM:-linux/amd64}
   restart: unless-stopped
   healthcheck:
@@ -77,7 +78,7 @@ x-o11y-image: &o11y-image
     start_period: 10s
 
 x-gres-image: &gres-image
-  image: ${KRABKA_GRES_IMAGE:-ghcr.io/krabka-io/gres@sha256:95404b6b6384f6f91d493f9d449709235d7445c4835d45186933e71bab0d0864}
+  image: ${KRABKA_GRES_IMAGE:-ghcr.io/krabka-io/gres@sha256:9c5414ecf3ae8babacbbaf285a4f9a62c6e7da6a3f6b363e02085129bf4d9c6a}
   platform: ${KRABKA_PLATFORM:-linux/amd64}
   restart: unless-stopped
 
@@ -160,7 +161,7 @@ services:
     volumes: ["broker-data:/data"]
 
   broker-format:
-    image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:6b51b36166590f07a4f28bd480296e59ad14162d4bc518a50678fa0f20fae8df}
+    image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:54ae711e5a7c8bdb03414402722f5c41dd50980ab315ab84d0803cca775fb463}
     platform: ${KRABKA_PLATFORM:-linux/amd64}
     <<: *setup-res
     restart: "no"
@@ -173,7 +174,9 @@ services:
 
   broker:
     <<: [*broker-image, *broker-res]
-    command: ["--listen-addr=0.0.0.0:9092", "--advertised-listener=broker:9092", "--log-dir=/data", "--process-roles=controller,broker"]
+    command: ["--listen-addr=0.0.0.0:9092", "--advertised-listener=broker:9092", "--log-dir=/data", "--process-roles=controller,broker", "--offsets-topic-replication-factor=1", "--transaction-state-replication-factor=1", "--transaction-state-min-isr=1"]
+    ulimits:
+      nofile: {soft: 65536, hard: 65536}
     environment:
       <<: *otlp-env
       OTEL_SERVICE_NAME: broker
@@ -669,7 +672,7 @@ services:
   # tenant's range layout and its SCRAM verifier, so it is also what sets the
   # SQL password. Idempotent: `describe` succeeds once the record exists.
   gres-setup:
-    image: ${KRABKA_CLI_IMAGE:-ghcr.io/krabka-io/krabka-cli@sha256:5b0970c3581e17ef024e332c5b2d97f9fae800cb1d52bdf2307bd756b2414645}
+    image: ${KRABKA_CLI_IMAGE:-ghcr.io/krabka-io/krabka-cli@sha256:a907a598629cd9b1d2d40650bc95fba0c3265d4892570c9c8e4c3ac3c8802cd6}
     platform: ${KRABKA_PLATFORM:-linux/amd64}
     <<: *setup-res
     restart: "no"
@@ -677,7 +680,7 @@ services:
       - /bin/sh
       - -c
       - >
-        ${KRABKA_CLI_BIN:-krabka} gres describe --bootstrap broker:9092 --name demo >/dev/null 2>&1 && exit 0; printf '%s' "${KRABKA_GRES_PASSWORD:-demo}" | ${KRABKA_CLI_BIN:-krabka} gres create-tenant --bootstrap broker:9092 --name demo --user demo --password-stdin
+        for attempt in $$(seq 1 60); do ${KRABKA_CLI_BIN:-krabka} gres describe --bootstrap broker:9092 --name demo >/dev/null 2>&1 && exit 0; printf '%s' "${KRABKA_GRES_PASSWORD:-demo}" | ${KRABKA_CLI_BIN:-krabka} gres create-tenant --bootstrap broker:9092 --name demo --user demo --password-stdin && exit 0; sleep 1; done; echo "Gres tenant setup timed out" >&2; exit 1
     depends_on:
       broker: {condition: service_healthy}
 
@@ -694,17 +697,10 @@ services:
       # waterfall at 5% would drop 19 of every 20 traces the demo exists to
       # show.
       KRABKA_OTLP_SAMPLE_RATIO: "1.0"
-      # The pinned gres image still reads the pre-rename CRABKA_* names and
-      # crabka_* tracing targets. Set both spellings until gres republishes.
-      CRABKA_OTLP_ENDPOINT: http://alloy:4317
-      CRABKA_OTLP_HEARTBEAT_INTERVAL: "${KRABKA_OTLP_HEARTBEAT_INTERVAL:-15s}"
-      CRABKA_OTLP_SAMPLE_RATIO: "1.0"
       # Both Gres binaries have a richer built-in waterfall filter than the
       # shared service default. Preserve the matching namespace unless the
       # operator overrides it.
       KRABKA_OTLP_FILTER: "${KRABKA_OTLP_FILTER:-info,krabka_pgwire::session=debug,krabka_pgexec::statement=debug,krabka_pgexec::exec=debug,krabka_gres_ranges::route=debug,krabka_gres_substrate::wal=debug}"
-      CRABKA_OTLP_FILTER: "${KRABKA_OTLP_FILTER:-info,crabka_pgwire::session=debug,crabka_pgexec::statement=debug,crabka_pgexec::exec=debug,crabka_gres_ranges::route=debug,crabka_gres_substrate::wal=debug}"
-      CRABKA_OTLP_SQL_TEXT: "${KRABKA_GRES_OTLP_SQL_TEXT:-false}"
       # Verbatim SQL (`db.query.text`) on statement spans. OFF by default: the
       # query text carries literals, so it is the one setting here that can
       # export personal data or secrets. Spans still carry db.query.summary

@@ -192,10 +192,10 @@ fn compaction_commands_match_the_pinned_image_contract() {
 }
 
 #[test]
-fn every_owned_image_default_is_digest_pinned() {
+fn every_dependency_image_default_is_digest_pinned() {
     let text = read("demo/observability/docker-compose.yml");
     for variable in [
-        "KRABKA_DEMO_IMAGE",
+        "KRABKA_CLI_IMAGE",
         "KRABKA_SCHEMA_REGISTRY_IMAGE",
         "KRABKA_BROKER_IMAGE",
         "KRABKA_O11Y_IMAGE",
