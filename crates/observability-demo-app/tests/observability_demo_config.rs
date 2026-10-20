@@ -96,9 +96,15 @@ fn every_container_defaults_to_amd64_with_a_ci_override() {
     let compose = compose();
     for (name, definition) in compose["services"].as_object().expect("services") {
         if !definition["image"].is_null() {
+            // Schema Registry publishes AMD64 and is emulated on ARM64 hosts.
+            let platform = if name == "schema-registry" {
+                "${KRABKA_SCHEMA_REGISTRY_PLATFORM:-linux/amd64}"
+            } else {
+                "${KRABKA_PLATFORM:-linux/amd64}"
+            };
             observability_demo_app::check_eq!(
                 definition["platform"].as_str(),
-                Some("${KRABKA_PLATFORM:-linux/amd64}"),
+                Some(platform),
                 "{}",
                 name.as_str()
             );
