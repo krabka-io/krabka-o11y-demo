@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use serde_yaml::Value;
+use serde_json::Value;
 
 fn root() -> PathBuf {
     std::env::var("CARGO_MANIFEST_DIR").map_or_else(
@@ -39,7 +39,7 @@ fn environment<'a>(service: &'a Value, name: &str) -> Option<&'a str> {
 
 fn command(service: &Value) -> Vec<&str> {
     service["command"]
-        .as_sequence()
+        .as_array()
         .expect("command list")
         .iter()
         .map(|value| value.as_str().expect("command string"))
@@ -94,13 +94,13 @@ fn published_ports_bind_to_loopback_with_an_override() {
 #[test]
 fn every_container_defaults_to_amd64_with_a_ci_override() {
     let compose = compose();
-    for (name, definition) in compose["services"].as_mapping().expect("services") {
+    for (name, definition) in compose["services"].as_object().expect("services") {
         if !definition["image"].is_null() {
             observability_demo_app::check_eq!(
                 definition["platform"].as_str(),
                 Some("${KRABKA_PLATFORM:-linux/amd64}"),
                 "{}",
-                name.as_str().unwrap_or("service")
+                name.as_str()
             );
         }
     }
@@ -233,7 +233,7 @@ fn alloy_scrapes_every_krabka_role_and_support_service() {
 #[test]
 fn grafana_datasources_define_cross_signal_links() {
     let config = yaml("demo/observability/grafana/provisioning/datasources/krabka.yaml");
-    let datasources = config["datasources"].as_sequence().expect("datasources");
+    let datasources = config["datasources"].as_array().expect("datasources");
     let by_uid = |uid| {
         datasources
             .iter()
@@ -323,12 +323,12 @@ fn alerting_has_routing_and_platform_failure_rules() {
     let alerting = yaml("demo/observability/grafana/provisioning/alerting/platform-alerts.yaml");
     observability_demo_app::check!(
         alerting["contactPoints"]
-            .as_sequence()
+            .as_array()
             .is_some_and(|items| !items.is_empty())
     );
     observability_demo_app::check!(
         alerting["policies"]
-            .as_sequence()
+            .as_array()
             .is_some_and(|items| !items.is_empty())
     );
     let text = read("demo/observability/grafana/provisioning/alerting/platform-alerts.yaml");
