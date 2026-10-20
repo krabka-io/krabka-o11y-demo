@@ -161,6 +161,10 @@ fn demo_role_configuration_is_scoped_to_its_owner() {
         Some("${KRABKA_DEMO_ORDERS_PER_SEC:-50Hz}")
     );
     observability_demo_app::check_eq!(
+        environment(produce, "KRABKA_DEMO_PRODUCER_MAX_IN_FLIGHT"),
+        Some("${KRABKA_DEMO_PRODUCER_MAX_IN_FLIGHT:-1}")
+    );
+    observability_demo_app::check_eq!(
         environment(stream, "KRABKA_DEMO_STREAMS_FETCH_MIN"),
         Some("${KRABKA_DEMO_STREAMS_FETCH_MIN:-1B}")
     );

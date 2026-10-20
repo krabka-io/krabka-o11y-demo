@@ -22,7 +22,9 @@ to a trusted interface to opt into remote access.
 
 ## Tuning
 
-`KRABKA_DEMO_ORDERS_PER_SEC` controls ingest load.
+`KRABKA_DEMO_ORDERS_PER_SEC` sets the requested ingest rate.
+`KRABKA_DEMO_PRODUCER_MAX_IN_FLIGHT` (`--producer-max-in-flight`) sets the maximum number of pending sends, including retries. The default is `1`. Use `5` to overlap sends across the five category keys at higher rates. Each key stays ordered, so values above `5` do not add concurrency with the current generator.
+The producer logs requested and achieved orders per second every five seconds and after shutdown drains pending sends. The achieved rate counts successful acknowledgements over elapsed time; exhausted sends count as failures. A slow key or broker backpressure can keep this rate below the requested rate.
 `KRABKA_DEMO_SLOW_ORDER_FRACTION` creates a deterministic latency tail.
 Memory and CPU limits are grouped by tier in `.env`. Reduce the rate before
 lowering distributor or trace-builder memory.
@@ -42,7 +44,7 @@ lowering distributor or trace-builder memory.
 
 ## Shutdown and upgrades
 
-`docker compose stop` sends SIGTERM; the demo roles leave their groups before
+`docker compose stop` sends SIGTERM; the producer drains pending sends and retries, and the consumer and Streams roles leave their groups before
 telemetry flushes. For an upgrade, save `revision-report.sh` output, change only
 digest-pinned image variables, run `docker compose up -d --wait`, and rerun the
 smoke test. Retain the old report and digests so `docker compose` can roll back

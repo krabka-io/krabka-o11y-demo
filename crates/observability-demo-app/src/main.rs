@@ -48,13 +48,14 @@ use krabka_units::{fmt::Human as _, parse, prelude::*};
 use observability_demo_app::{
     Order, is_anomalous,
     metrics::{DemoMetrics, PipelineErrorKind, metrics_router},
-    order_at,
     pipeline::{
         PipelineInputError, StageWork, decode_order, header_value, order_headers, process_order,
         stage_delay,
     },
 };
 use tracing::Instrument as _;
+
+mod producer;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -141,6 +142,9 @@ struct Cli {
         value_parser = parse_nonnegative_frequency
     )]
     orders_per_sec: Frequency,
+    /// Maximum pending producer sends, including retries. Each category stays ordered.
+    #[arg(long, env = "KRABKA_DEMO_PRODUCER_MAX_IN_FLIGHT", default_value = "1")]
+    producer_max_in_flight: NonZeroUsize,
     #[arg(
         long,
         env = "KRABKA_DEMO_CONSUMER_POLL_TIMEOUT",
@@ -1020,85 +1024,96 @@ async fn run_produce(
     }
     // The reciprocal of an order rate is the inter-order period.
     let period: Time = 1.0 / cli.orders_per_sec;
-    let mut tick = tokio::time::interval(period.to_std());
-    let mut i: u64 = 0;
-    loop {
-        tokio::select! {
-            () = shutdown_signal() => break,
-            _ = tick.tick() => {}
-        }
-        let mut order = order_at(i);
-        order.ts_ms = i64::try_from(i).unwrap_or(i64::MAX); // monotonic demo clock
-        let value = serde.serialize(&cli.input_topic, &order);
+    producer::send_orders(
+        period.to_std(),
+        cli.producer_max_in_flight,
+        shutdown_signal(),
+        |order| {
+            let value = serde.serialize(&cli.input_topic, &order);
 
-        // A per-order PRODUCER span whose trace context is injected into the
-        // record headers below; ~sample_ratio of these become full cross-service
-        // traces once the consumer continues them.
-        let span = tracing::info_span!(
-            "produce_order",
-            otel.kind = "producer",
-            otel.name = "orders publish",
-            messaging.system = "kafka",
-            messaging.destination.name = %cli.input_topic,
-            messaging.operation = "publish",
-            demo.order.id = %order.order_id,
-            demo.order.category = %order.category,
-            demo.order.region = %order.region,
-            demo.order.warehouse = %order.warehouse,
-            demo.order.payment_method = %order.payment_method,
-            demo.order.customer_tier = %order.customer_tier,
-            demo.order.amount = order.amount,
-            demo.order.quantity = order.quantity,
-            otel.status_code = tracing::field::Empty,
+            let producer = Arc::clone(&producer);
+            publish_order(
+                order,
+                cli.input_topic.clone(),
+                value,
+                metrics.clone(),
+                move |record| {
+                    let producer = Arc::clone(&producer);
+                    async move { producer.send(record).await }
+                },
+            )
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+/// Keep trace creation, header injection and retries on the same delivery future.
+fn publish_order<F>(
+    order: Order,
+    topic: String,
+    value: Bytes,
+    metrics: DemoMetrics,
+    mut send: impl FnMut(ProducerRecord) -> F,
+) -> impl Future<Output = bool>
+where
+    F: Future<Output = Result<RecordMetadata, ProducerError>>,
+{
+    let span = tracing::info_span!(
+        parent: None,
+        "produce_order",
+        otel.kind = "producer",
+        otel.name = "orders publish",
+        messaging.system = "kafka",
+        messaging.destination.name = %topic,
+        messaging.operation = "publish",
+        demo.order.id = %order.order_id,
+        demo.order.category = %order.category,
+        demo.order.region = %order.region,
+        demo.order.warehouse = %order.warehouse,
+        demo.order.payment_method = %order.payment_method,
+        demo.order.customer_tier = %order.customer_tier,
+        demo.order.amount = order.amount,
+        demo.order.quantity = order.quantity,
+        otel.status_code = tracing::field::Empty,
+    );
+
+    async move {
+        if is_anomalous(&order) {
+            tracing::warn!(order_id = %order.order_id, "anomalous zero-amount order");
+        }
+        // Inject the CURRENT (produce_order) span's W3C trace context into
+        // the record headers so the consumer can continue this trace, plus a
+        // couple of business headers to show custom Kafka headers round-trip
+        // through the broker verbatim.
+        let headers = order_headers(
+            krabka_telemetry::propagation::current_trace_headers(),
+            &order,
         );
 
-        let producer = Arc::clone(&producer);
-        let metrics = metrics.clone();
-        let topic = cli.input_topic.clone();
-        async move {
-            if is_anomalous(&order) {
-                tracing::warn!(order_id = %order.order_id, "anomalous zero-amount order");
-            }
-            // Inject the CURRENT (produce_order) span's W3C trace context into
-            // the record headers so the consumer can continue this trace, plus a
-            // couple of business headers to show custom Kafka headers round-trip
-            // through the broker verbatim.
-            let headers = order_headers(
-                krabka_telemetry::propagation::current_trace_headers(),
-                &order,
-            );
-
-            let start = Instant::now();
-            let record = ProducerRecord {
-                topic,
-                key: Some(Bytes::from(order.category.clone().into_bytes())),
-                value: Some(value),
-                headers,
-                ..Default::default()
-            };
-            if !send_with_retry(&metrics, || producer.send(record.clone())).await {
-                tracing::Span::current().record("otel.status_code", "ERROR");
-                tracing::error!("producer send failed after three attempts");
-                return Ok::<(), BoxError>(());
-            }
-            metrics.record_produced(
-                &order.category,
-                &order.region,
-                &order.payment_method,
-                order.amount,
-                Time::from_std(start.elapsed()),
-            );
-            Ok::<(), BoxError>(())
+        let start = Instant::now();
+        let record = ProducerRecord {
+            topic,
+            key: Some(Bytes::from(order.category.clone().into_bytes())),
+            value: Some(value),
+            headers,
+            ..Default::default()
+        };
+        if !send_with_retry(&metrics, || send(record.clone())).await {
+            tracing::Span::current().record("otel.status_code", "ERROR");
+            tracing::error!("producer send failed after three attempts");
+            return false;
         }
-        .instrument(span)
-        .await?;
-
-        i += 1;
-        if i.is_multiple_of(100) {
-            tracing::info!(produced = i, "orders produced");
-        }
+        metrics.record_produced(
+            &order.category,
+            &order.region,
+            &order.payment_method,
+            order.amount,
+            Time::from_std(start.elapsed()),
+        );
+        true
     }
-    Ok(())
+    .instrument(span)
 }
 
 async fn send_with_retry<F>(metrics: &DemoMetrics, mut send: impl FnMut() -> F) -> bool
@@ -1389,8 +1404,130 @@ async fn wait_for_shutdown(signal: impl Future<Output = ()>) {
 #[cfg(test)]
 mod tests {
     use clap::CommandFactory;
+    use observability_demo_app::order_at;
 
     use super::*;
+
+    #[test]
+    fn producer_concurrency_defaults_to_one_and_rejects_zero() {
+        let parse = |args: &[&str]| {
+            Cli::try_parse_from(
+                ["observability-demo-app", "--role", "produce"]
+                    .into_iter()
+                    .chain(args.iter().copied()),
+            )
+        };
+        assert2::assert!(parse(&[]).unwrap().producer_max_in_flight.get() == 1);
+        assert2::assert!(
+            parse(&["--producer-max-in-flight", "5"])
+                .unwrap()
+                .producer_max_in_flight
+                .get()
+                == 5
+        );
+        assert2::assert!(parse(&["--producer-max-in-flight", "0"]).is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn concurrent_deliveries_keep_trace_context_and_records_across_retries() {
+        use std::sync::Mutex;
+
+        use opentelemetry::trace::{TraceContextExt as _, TracerProvider as _};
+        use opentelemetry_sdk::trace::SdkTracerProvider;
+        use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+        use tracing_subscriber::prelude::*;
+
+        opentelemetry::global::set_text_map_propagator(
+            opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+        );
+        let provider = SdkTracerProvider::builder().build();
+        let subscriber = tracing_subscriber::registry().with(
+            tracing_opentelemetry::layer().with_tracer(provider.tracer("concurrent-producer-test")),
+        );
+        let _subscriber = tracing::subscriber::set_default(subscriber);
+        let ambient = tracing::info_span!("process_lifetime");
+        let ambient_trace = ambient.context().span().span_context().trace_id();
+        let _ambient = ambient.enter();
+        let records = Arc::new(Mutex::new(Vec::new()));
+        let metrics = DemoMetrics::new();
+        let report = producer::send_orders(
+            Duration::from_millis(5),
+            NonZeroUsize::new(5).unwrap(),
+            tokio::time::sleep(Duration::from_millis(25)),
+            |order| {
+                let records = Arc::clone(&records);
+                let mut attempt = 0;
+                publish_order(
+                    order.clone(),
+                    "orders".into(),
+                    Bytes::from(order.order_id),
+                    metrics.clone(),
+                    move |record| {
+                        attempt += 1;
+                        let attempt = attempt;
+                        let records = Arc::clone(&records);
+                        async move {
+                            tokio::time::sleep(Duration::from_millis(20)).await;
+                            let context = tracing::Span::current().context();
+                            let span = context.span();
+                            let expected = format!(
+                                "00-{}-{}-01",
+                                span.span_context().trace_id(),
+                                span.span_context().span_id()
+                            );
+                            let actual = record
+                                .headers
+                                .iter()
+                                .find(|header| header.key == "traceparent")
+                                .unwrap();
+                            assert2::assert!(actual.value.as_deref() == Some(expected.as_bytes()));
+                            assert2::assert!(span.span_context().trace_id() != ambient_trace);
+                            records.lock().unwrap().push(record);
+                            if attempt < 3 {
+                                Err(ProducerError::Server(29))
+                            } else {
+                                Ok(RecordMetadata {
+                                    topic: "orders".into(),
+                                    partition: 0,
+                                    offset: 0,
+                                    timestamp_ms: -1,
+                                    serialized_key_size: -1,
+                                    serialized_value_size: 1,
+                                })
+                            }
+                        }
+                    },
+                )
+            },
+        )
+        .await
+        .unwrap();
+        assert2::assert!(report.acknowledged == 5 && report.failed == 0);
+        let records = records.lock().unwrap();
+        assert2::assert!(records.len() == 15);
+        let mut contexts = std::collections::HashSet::new();
+        for index in 0..5 {
+            let order = order_at(index);
+            let attempts = records
+                .iter()
+                .filter(|record| record.value.as_deref() == Some(order.order_id.as_bytes()))
+                .collect::<Vec<_>>();
+            assert2::assert!(attempts.len() == 3);
+            for attempt in &attempts {
+                assert2::assert!(attempt.key.as_deref() == Some(order.category.as_bytes()));
+                assert2::assert!(*attempt == attempts[0]);
+            }
+            let traceparent = attempts[0]
+                .headers
+                .iter()
+                .find(|h| h.key == "traceparent")
+                .unwrap()
+                .value
+                .clone()
+                .unwrap();
+            assert2::assert!(contexts.insert(traceparent));
+        }
+    }
 
     #[tokio::test]
     async fn sends_retry_delivery_errors_and_stop_at_success_or_three_attempts() {
@@ -1758,6 +1895,7 @@ mod tests {
             streams_application_id: "orders-analytics".to_owned(),
             consumer_group_id: "orders-processor".to_owned(),
             orders_per_sec: per_sec(50),
+            producer_max_in_flight: NonZeroUsize::new(1).unwrap(),
             consumer_poll_timeout: millis(500),
             validate_work: krabka_units::micros(150),
             enrich_work: krabka_units::micros(400),
@@ -1853,6 +1991,7 @@ mod tests {
             streams_application_id: "orders-analytics".to_owned(),
             consumer_group_id: "orders-processor".to_owned(),
             orders_per_sec: per_sec(50),
+            producer_max_in_flight: NonZeroUsize::new(1).unwrap(),
             consumer_poll_timeout: millis(500),
             validate_work: krabka_units::micros(150),
             enrich_work: krabka_units::micros(400),
@@ -1960,6 +2099,7 @@ mod tests {
             streams_application_id: "orders-analytics".to_owned(),
             consumer_group_id: "orders-processor".to_owned(),
             orders_per_sec: per_sec(50),
+            producer_max_in_flight: NonZeroUsize::new(1).unwrap(),
             consumer_poll_timeout: millis(500),
             validate_work: krabka_units::micros(150),
             enrich_work: krabka_units::micros(400),
@@ -2067,6 +2207,7 @@ mod tests {
             streams_application_id: "orders-analytics".to_owned(),
             consumer_group_id: "orders-processor".to_owned(),
             orders_per_sec: per_sec(50),
+            producer_max_in_flight: NonZeroUsize::new(1).unwrap(),
             consumer_poll_timeout: millis(500),
             validate_work: krabka_units::micros(150),
             enrich_work: krabka_units::micros(400),
@@ -2136,6 +2277,7 @@ mod tests {
             streams_application_id: "orders-analytics".to_owned(),
             consumer_group_id: "orders-processor".to_owned(),
             orders_per_sec: per_sec(50),
+            producer_max_in_flight: NonZeroUsize::new(1).unwrap(),
             consumer_poll_timeout: millis(500),
             validate_work: krabka_units::micros(150),
             enrich_work: krabka_units::micros(400),
@@ -2257,6 +2399,7 @@ mod tests {
         if std::env::var_os(CHILD).is_some() {
             let environment = Cli::try_parse_from(["observability-demo-app", "--role", "stream"])
                 .expect("environment policy");
+            assert2::assert!(environment.producer_max_in_flight.get() == 5);
             let (dispatch, frame) = client_resource_policy(&environment);
             observability_demo_app::check_eq!(dispatch.get(), 7);
             observability_demo_app::check_eq!(frame.size(), kibibytes(32));
@@ -2271,6 +2414,8 @@ mod tests {
                 "observability-demo-app",
                 "--role",
                 "stream",
+                "--producer-max-in-flight",
+                "9",
                 "--client-dispatch-queue-capacity",
                 "9",
                 "--client-frame-max",
@@ -2279,6 +2424,7 @@ mod tests {
                 "5B",
             ])
             .expect("CLI over environment");
+            assert2::assert!(cli.producer_max_in_flight.get() == 9);
             let (dispatch, frame) = client_resource_policy(&cli);
             observability_demo_app::check_eq!(dispatch.get(), 9);
             observability_demo_app::check_eq!(frame.size(), kibibytes(64));
@@ -2299,6 +2445,7 @@ mod tests {
                     "--nocapture",
                 ])
                 .env(CHILD, "1")
+                .env("KRABKA_DEMO_PRODUCER_MAX_IN_FLIGHT", "5")
                 .env("KRABKA_DEMO_CLIENT_DISPATCH_QUEUE_CAPACITY", "7")
                 .env("KRABKA_DEMO_CLIENT_FRAME_MAX", "32KiB")
                 .env("KRABKA_DEMO_STREAMS_FETCH_MIN", "3B")
