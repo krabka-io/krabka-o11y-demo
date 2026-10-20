@@ -15,3 +15,5 @@ Metric labels are fixed enums or bounded business dimensions from the
 generator. Error text, order IDs, and trace IDs never become labels. Shutdown
 waits for SIGINT or SIGTERM, closes consumer/Streams group membership, then
 flushes telemetry.
+
+The producer bounds pending sends with `producer-max-in-flight` (default `1`). It admits orders in generator order and permits one pending delivery per category key. Retries keep the key occupied. Shutdown stops admission and drains every pending delivery before telemetry flushes. Periodic and final logs compare the requested rate with the rate of successful acknowledgements.
