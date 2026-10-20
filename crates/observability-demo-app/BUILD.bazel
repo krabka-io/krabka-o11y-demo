@@ -17,6 +17,9 @@ crate_library(
 # `bazel run //:demo -- --role produce`.
 crate_binary(
     name = "observability-demo-app",
+    # crate_binary declares only the entry point in srcs. Make its private
+    # module available to rustc, Clippy, and the inherited binary unit tests.
+    compile_data = ["src/producer.rs"],
     crate_root = "src/main.rs",
     lib = ":observability_demo_app",
 )

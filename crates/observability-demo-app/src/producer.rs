@@ -198,7 +198,7 @@ mod tests {
         assert2::assert!(state.completed.len() == 10);
         assert2::assert!(report.acknowledged == 8);
         assert2::assert!(report.failed == 2);
-        assert2::assert!(report.achieved_rate(Duration::from_secs(2)) == 4.0);
+        assert2::assert!((report.achieved_rate(Duration::from_secs(2)) - 4.0).abs() < f64::EPSILON);
         for category in observability_demo_app::CATEGORIES {
             let ids = |orders: &[Order]| {
                 orders
