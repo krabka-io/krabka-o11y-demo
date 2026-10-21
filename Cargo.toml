@@ -5,7 +5,7 @@ members = ["crates/*"]
 exclude = ["tools/mutants"]
 
 [workspace.package]
-version = "0.6.1"
+version = "0.6.2"
 edition = "2024"
 license = "Apache-2.0"
 authors = ["The Krabka Authors"]
@@ -53,7 +53,7 @@ tracing-opentelemetry = "0.34"
 tracing-subscriber = "0.3"
 opentelemetry = "0.33"
 opentelemetry_sdk = "0.33"
-serde_yaml = "0.9"
+serde_yaml = { package = "serde-saphyr", version = "2.0" }
 serde_json = "1"
 
 # First-party crates inherited by more than one member.

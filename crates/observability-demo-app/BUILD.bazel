@@ -25,6 +25,7 @@ crate_binary(
 )
 
 crate_tests(
+    compile_data = ["//:Cargo.toml"],
     # Fifteen of the sixteen suites drive the built binary through its CLI.
     # Naming it in `data` is all that is needed: rules_rust defines
     # `CARGO_BIN_EXE_<output basename>` for every bin crate there, and defines

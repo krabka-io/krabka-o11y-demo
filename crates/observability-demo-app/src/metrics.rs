@@ -377,7 +377,15 @@ mod tests {
             .await
             .unwrap();
         let body = String::from_utf8(body.to_vec()).unwrap();
-        assert2::assert!(body.contains(concat!("version=", env!("CARGO_PKG_VERSION"))));
+        let expected_version = include_str!("../../../Cargo.toml")
+            .split("[workspace.package]\n")
+            .nth(1)
+            .expect("workspace package table")
+            .lines()
+            .find_map(|line| line.strip_prefix("version = \""))
+            .and_then(|version| version.strip_suffix('"'))
+            .expect("workspace package version");
+        assert2::assert!(body.contains(&format!("version={expected_version} ")));
         assert2::assert!(body.contains("revision="));
     }
 

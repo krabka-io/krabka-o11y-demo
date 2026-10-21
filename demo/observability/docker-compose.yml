@@ -37,7 +37,7 @@ x-otlp-env: &otlp-env
 # demo-* services run ghcr.io/krabka-io/krabka-o11y-demo, which this repository
 # builds with Bazel. README.md shows how to load local builds.
 x-demo-image: &demo-image
-  image: ${KRABKA_DEMO_IMAGE:-ghcr.io/krabka-io/krabka-o11y-demo:v0.6.1}
+  image: ${KRABKA_DEMO_IMAGE:-ghcr.io/krabka-io/krabka-o11y-demo:v0.6.2}
   platform: ${KRABKA_PLATFORM:-linux/amd64}
   restart: unless-stopped
   healthcheck:
