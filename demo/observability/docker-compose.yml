@@ -48,7 +48,7 @@ x-demo-image: &demo-image
     start_period: 10s
 
 x-schema-registry-image: &schema-registry-image
-  image: ${KRABKA_SCHEMA_REGISTRY_IMAGE:-ghcr.io/krabka-io/krabka-schema-registry@sha256:eb6213cafd08129e08af7a7f60eaee661ba84da44f67698464541e9cb062978a}
+  image: ${KRABKA_SCHEMA_REGISTRY_IMAGE:-ghcr.io/krabka-io/krabka-schema-registry@sha256:b1c6021b702cd17dcae9adad7877ac31d97ddc77cb37b37df1bb698fc1ddc92b}
   # Schema Registry publishes AMD64; ARM64 hosts emulate this dependency.
   platform: ${KRABKA_SCHEMA_REGISTRY_PLATFORM:-linux/amd64}
   restart: unless-stopped
@@ -60,7 +60,7 @@ x-schema-registry-image: &schema-registry-image
     start_period: 10s
 
 x-broker-image: &broker-image
-  image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:54ae711e5a7c8bdb03414402722f5c41dd50980ab315ab84d0803cca775fb463}
+  image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:1d0dd0d4d721e47866eda23279c37aba11324db222ba8cd7f001554c32e7745f}
   platform: ${KRABKA_PLATFORM:-linux/amd64}
   restart: unless-stopped
 
@@ -161,7 +161,7 @@ services:
     volumes: ["broker-data:/data"]
 
   broker-format:
-    image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:54ae711e5a7c8bdb03414402722f5c41dd50980ab315ab84d0803cca775fb463}
+    image: ${KRABKA_BROKER_IMAGE:-ghcr.io/krabka-io/krabka-broker@sha256:1d0dd0d4d721e47866eda23279c37aba11324db222ba8cd7f001554c32e7745f}
     platform: ${KRABKA_PLATFORM:-linux/amd64}
     <<: *setup-res
     restart: "no"
@@ -673,7 +673,7 @@ services:
   # tenant's range layout and its SCRAM verifier, so it is also what sets the
   # SQL password. Idempotent: `describe` succeeds once the record exists.
   gres-setup:
-    image: ${KRABKA_CLI_IMAGE:-ghcr.io/krabka-io/krabka-cli@sha256:a907a598629cd9b1d2d40650bc95fba0c3265d4892570c9c8e4c3ac3c8802cd6}
+    image: ${KRABKA_CLI_IMAGE:-ghcr.io/krabka-io/krabka-cli@sha256:f9c8cab077a043cb9d003a34c34babef05aeb37ba660990a3d418247ddcd88ad}
     platform: ${KRABKA_PLATFORM:-linux/amd64}
     <<: *setup-res
     restart: "no"
