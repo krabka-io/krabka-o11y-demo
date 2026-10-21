@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   qualify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 75
     env:
       KRABKA_PLATFORM: linux/amd64
@@ -28,6 +28,8 @@ jobs:
       KRABKA_O11Y_IMAGE: ${{ inputs.o11y_image }}
       KRABKA_SMOKE_TIMEOUT_SECONDS: "600"
     steps:
+      - name: Keep temporary files off the size-limited /tmp tmpfs
+        run: echo "TMPDIR=${RUNNER_TEMP}" >> "${GITHUB_ENV}"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: require an immutable candidate
         run: |

@@ -36,7 +36,7 @@ permissions:
 
 jobs:
   recovery:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     env:
       KRABKA_PLATFORM: linux/amd64
@@ -49,6 +49,8 @@ jobs:
       KRABKA_SMOKE_SERVICES: >-
         broker rustfs alloy schema-registry grafana cadvisor gres gres-workload demo-produce demo-stream demo-consume metrics-distributor metrics-block-builder metrics-compactor metrics-querier traces-distributor traces-block-builder traces-metrics-generator traces-querier logs-distributor logs-block-builder logs-querier profiles-distributor profiles-block-builder profiles-querier
     steps:
+      - name: Keep temporary files off the size-limited /tmp tmpfs
+        run: echo "TMPDIR=${RUNNER_TEMP}" >> "${GITHUB_ENV}"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: free disk
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
