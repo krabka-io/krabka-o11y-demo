@@ -65,7 +65,7 @@ x-broker-image: &broker-image
   restart: unless-stopped
 
 x-o11y-image: &o11y-image
-  image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:98ec741d3960a80d2146eadfcd8951c4dcedd1926b23e4584e038329bcfb4d17}
+  image: ${KRABKA_O11Y_IMAGE:-ghcr.io/krabka-io/krabka-o11y@sha256:7acd0c1aad219b70968d57064819e4c56e904cf6b947a78f437950cd36034ac1}
   platform: ${KRABKA_PLATFORM:-linux/amd64}
   restart: unless-stopped
   healthcheck:
