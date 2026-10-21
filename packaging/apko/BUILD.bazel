@@ -140,7 +140,10 @@ sh_test(
 image_load(
     name = "load",
     image = ":image",
-    tag = "krabka-io/krabka-o11y-demo:dev",
+    # Fully qualified on purpose. rules_img stores the tag verbatim, and
+    # Docker 29's containerd image store does not normalize it, so a bare
+    # name is invisible to `docker tag krabka-io/krabka-o11y-demo:dev`.
+    tag = "docker.io/krabka-io/krabka-o11y-demo:dev",
 )
 
 image_push(
