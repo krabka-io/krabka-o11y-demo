@@ -1,6 +1,7 @@
 name: ci
 on:
   pull_request:
+  merge_group:
   push:
     branches: [main]
   schedule:
@@ -202,3 +203,14 @@ jobs:
           name: mutants-${{ matrix.crate.name }}
           path: mutation-summary.txt
           if-no-files-found: error
+
+  gate:
+    name: gate
+    if: always() && github.event_name != 'schedule'
+    needs: [cargo, ci, coverage, docs]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: krabka-io/tooling/actions/gate@a42cceef18200f4f282ae5a090856f63125a12ff
+        with:
+          results: ${{ toJSON(needs) }}
