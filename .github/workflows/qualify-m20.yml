@@ -1,27 +1,7 @@
 name: qualify-m20
 
 on:
-  pull_request:
-    paths:
-      - .github/workflows/qualify-m20.yml
-      - demo/observability/**
-      - Cargo.toml
-      - Cargo.lock
-      - crates/**
-      - MODULE.bazel
-      - MODULE.bazel.lock
-      - packaging/apko/**
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/qualify-m20.yml
-      - demo/observability/**
-      - Cargo.toml
-      - Cargo.lock
-      - crates/**
-      - MODULE.bazel
-      - MODULE.bazel.lock
-      - packaging/apko/**
+  workflow_call:
   schedule:
     - cron: "30 5 * * *"
   workflow_dispatch:

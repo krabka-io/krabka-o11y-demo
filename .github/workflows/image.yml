@@ -1,17 +1,8 @@
 name: image
 
 on:
-  pull_request:
-    paths:
-      - .github/workflows/image.yml
-      - BUILD.bazel
-      - MODULE.bazel
-      - Cargo.lock
-      - Cargo.toml
-      - crates/**
-      - packaging/apko/**
+  workflow_call:
   push:
-    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 
