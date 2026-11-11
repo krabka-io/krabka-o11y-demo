@@ -20,6 +20,61 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
+  changes:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      image: ${{ steps.paths.outputs.image }}
+      recovery: ${{ steps.paths.outputs.recovery }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@15192bc058cc28a13dbf6cde61f19e18988b7af6
+        id: paths
+        with:
+          base: ${{ github.event.merge_group.base_sha || github.event.before || github.ref }}
+          filters: |
+            image:
+              - '.github/workflows/image.yml'
+              - 'BUILD.bazel'
+              - 'MODULE.bazel'
+              - 'Cargo.lock'
+              - 'Cargo.toml'
+              - 'crates/**'
+              - 'packaging/apko/**'
+            recovery:
+              - '.github/workflows/qualify-m20.yml'
+              - 'demo/observability/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/**'
+              - 'MODULE.bazel'
+              - 'MODULE.bazel.lock'
+              - 'packaging/apko/**'
+
+  image:
+    needs: changes
+    if: needs.changes.outputs.image == 'true'
+    uses: ./.github/workflows/image.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+  recovery:
+    needs: changes
+    if: needs.changes.outputs.recovery == 'true'
+    uses: ./.github/workflows/qualify-m20.yml
+    secrets: inherit
+    permissions:
+      contents: read
+
   cargo:
     name: cargo · build · nextest · clippy · deny
     if: github.event_name != 'schedule'
@@ -207,10 +262,11 @@ jobs:
   gate:
     name: gate
     if: always() && github.event_name != 'schedule'
-    needs: [cargo, ci, coverage, docs]
+    needs: [changes, image, recovery, cargo, ci, coverage, docs]
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
-      - uses: krabka-io/tooling/actions/gate@a42cceef18200f4f282ae5a090856f63125a12ff
+      - uses: krabka-io/tooling/actions/gate@1fb9d942c2def2fcfa20c19ed8ae8a7d8f220f65
         with:
           results: ${{ toJSON(needs) }}
+          allow-skipped: image, recovery
